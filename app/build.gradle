@@ -78,6 +78,7 @@ android {
 }
 
 dependencies {
+    implementation 'com.google.mlkit:digital-ink-recognition:16.0.0'
 
     implementation 'androidx.core:core-ktx:1.7.0'
     implementation "androidx.compose.ui:ui:$compose_version"
@@ -136,6 +137,11 @@ dependencies {
     implementation "com.beust:klaxon:5.5"
 
     implementation 'io.shipbook:shipbooksdk:1.+'
+    
+    // AWS SDK for Lambda integration
+    implementation 'com.amazonaws:aws-android-sdk-core:2.72.0'
+    implementation 'com.amazonaws:aws-android-sdk-lambda:2.72.0'
+    implementation 'com.amazonaws:aws-android-sdk-cognito:2.72.0'
 
 
 }

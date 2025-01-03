@@ -33,6 +33,8 @@ class DrawCanvas(
     val page: PageView,
     val history: History
 ) : SurfaceView(_context) {
+    private val lambdaService = LambdaService(_context)
+    private val sentencesBuffer = mutableListOf<String>()
 
     private val strokeHistoryBatch = mutableListOf<String>()
     private val commitHistorySignal = MutableSharedFlow<Unit>()
@@ -81,6 +83,10 @@ class DrawCanvas(
                         getActualState().pen,
                         plist.points
                     )
+                    
+                    // Detect sentence completion
+                    detectAndProcessSentence(plist.points)
+                    
                     coroutineScope.launch {
                         commitHistorySignal.emit(Unit)
                     }
@@ -333,6 +339,61 @@ class DrawCanvas(
             }
             Mode.Select -> touchHelper.setStrokeStyle(penToStroke(Pen.BALLPEN))?.setStrokeWidth(3f)
                 ?.setStrokeColor(Color.GRAY)
+        }
+    }
+
+    private val recognizer by lazy {
+        val modelIdentifier = DigitalInkRecognitionModelIdentifier.fromLanguageTag("en-US")
+            ?: throw IllegalStateException("Language not supported")
+        val model = DigitalInkRecognitionModel.builder(modelIdentifier).build()
+        DigitalInkRecognition.getClient(model)
+    }
+
+    private fun detectSentence(points: List<TouchPoint>) {
+        val lastPoint = points.last()
+        
+        // Check for end of line or pause in writing
+        if (lastPoint.x > page.width * 0.9 || 
+            points.size > 1 && lastPoint.timestamp - points[points.size - 2].timestamp > 1000) {
+            
+            // Convert points to Ink
+            val stroke = Stroke.builder()
+                .addPoints(points.map { 
+                    Ink.Point.create(it.x, it.y, it.timestamp) 
+                })
+                .build()
+            
+            val ink = Ink.builder().addStroke(stroke).build()
+            
+            // Recognize handwriting
+            recognizer.recognize(ink)
+                .addOnSuccessListener { result ->
+                    val recognizedText = result.candidates.firstOrNull()?.text ?: ""
+                    if (recognizedText.isNotBlank()) {
+                        sentencesBuffer.add(recognizedText)
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "Handwriting recognition failed", e)
+                }
+        }
+    }
+
+    fun sendBufferedSentences() {
+        if (sentencesBuffer.isNotEmpty()) {
+            coroutineScope.launch {
+                try {
+                    val results = sentencesBuffer.map { sentence ->
+                        lambdaService.sendSentence(sentence)
+                    }
+                    Log.i(TAG, "Lambda responses: $results")
+                    // TODO: Show results to user
+                    sentencesBuffer.clear()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error sending sentences to Lambda", e)
+                    // TODO: Show error to user
+                }
+            }
         }
     }
 
