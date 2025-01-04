@@ -45,6 +45,8 @@ class PageView(
 
     var db = AppDatabase.getDatabase(context)?.strokeDao()!!
 
+    private var textToRender: String? by mutableStateOf(null)
+
     init {
         coroutineScope.launch {
             saveTopic.debounce(1000).collect {
@@ -196,7 +198,7 @@ class PageView(
         val timeToBg = measureTimeMillis {
             drawBg(activeCanvas, pageFromDb?.nativeTemplate ?: "blank", scroll)
         }
-        Log.i(TAG, "Took $timeToBg to draw the BG")
+        Log.i(TAG, "Took ${timeToBg}ms to draw the BG")
 
         val timeToDraw = measureTimeMillis {
             strokes.forEach { stroke ->
@@ -209,8 +211,12 @@ class PageView(
                     activeCanvas, stroke, IntOffset(0, -scroll)
                 )
 
+                //draw text
+                renderText(activeCanvas)
+
             }
         }
+
         Log.i(TAG, "Drew area in ${timeToDraw}ms")
         activeCanvas.restore();
     }
@@ -261,6 +267,28 @@ class PageView(
         coroutineScope.launch {
             AppRepository(context).pageRepository.updateScroll(id, scroll)
             pageFromDb = AppRepository(context).pageRepository.getById(id)
+        }
+    }
+
+    // Add a method to update the text
+    fun updateTextToRender(text: String?) {
+        textToRender = text
+        // Trigger a redraw
+        drawArea(Rect(0, 0, viewWidth, viewHeight))
+    }
+
+    // Modify renderText to use the stored text
+    private fun renderText(canvas: Canvas) {
+        textToRender?.let { text ->
+            val textPaint = Paint().apply {
+                color = Color.BLACK
+                textSize = 50f
+                isAntiAlias = true
+                textAlign = Paint.Align.CENTER
+            }
+            val centerX = viewWidth / 2f
+            val centerY = viewHeight / 2f
+            canvas.drawText(text, centerX, centerY, textPaint)
         }
     }
 }

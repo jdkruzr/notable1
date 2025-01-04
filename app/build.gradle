@@ -28,25 +28,11 @@ android {
 
     }
 
-    signingConfigs {
-        debug {
-            storeFile file(DEBUG_STORE_FILE)
-            storePassword DEBUG_STORE_PASSWORD
-            keyAlias DEBUG_KEY_ALIAS
-            keyPassword DEBUG_KEY_PASSWORD
-
-            // Optional, specify signing versions used
-            v1SigningEnabled true
-            v2SigningEnabled true
-        }
-    }
-
 
     buildTypes {
         debug {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug
             buildConfigField("boolean", "IS_NEXT", IS_NEXT)
         }
         release {
@@ -72,6 +58,9 @@ android {
 
         resources {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
+            excludes += '/META-INF/DEPENDENCIES'
+            excludes += '/META-INF/io.netty.versions.properties'
+            excludes += '/META-INF/INDEX.LIST'
         }
     }
     namespace 'com.olup.notable'
@@ -81,6 +70,7 @@ dependencies {
     implementation 'com.google.mlkit:digital-ink-recognition:16.0.0'
 
     implementation 'androidx.core:core-ktx:1.7.0'
+    implementation 'androidx.work:work-runtime-ktx:2.8.1'
     implementation "androidx.compose.ui:ui:$compose_version"
     implementation "androidx.compose.material:material:$compose_version"
     implementation "androidx.compose.ui:ui-tooling-preview:$compose_version"
@@ -138,10 +128,11 @@ dependencies {
 
     implementation 'io.shipbook:shipbooksdk:1.+'
     
-    // AWS SDK for Lambda integration
-    implementation 'com.amazonaws:aws-android-sdk-core:2.72.0'
-    implementation 'com.amazonaws:aws-android-sdk-lambda:2.72.0'
-    implementation 'com.amazonaws:aws-android-sdk-cognito:2.72.0'
+    // AWS SDK v2
+    implementation(platform("software.amazon.awssdk:bom:2.27.21"))
+    implementation("software.amazon.awssdk:s3")
+    implementation("software.amazon.awssdk:lambda")
+    implementation("software.amazon.awssdk:cognitoidentityprovider")
 
 
 }

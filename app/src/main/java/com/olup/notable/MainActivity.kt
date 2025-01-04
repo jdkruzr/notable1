@@ -32,10 +32,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        ShipBook.start(this.application, "648adf9364c9825976c1d57e",
-            "7c53dffa949e3b55e37ab04672138feb");
+        ShipBook.start(this.application, "6778992fc8927e001157b0d7",
+            "1a3e1ee98967d4752478ba7ad7e4d80e");
 
-        Log.i(TAG, "Notable started")
+        Log.i(TAG, "WizardWriter started")
 
 
         if(SCREEN_WIDTH == 0){

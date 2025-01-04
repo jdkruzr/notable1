@@ -13,6 +13,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import io.shipbook.shipbooksdk.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -216,6 +217,24 @@ fun Toolbar(
                     },
                     iconId = R.drawable.redo,
                     contentDescription = "redo"
+                )
+
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .width(0.5.dp)
+                        .background(Color.Black)
+                )
+
+
+                ToolbarButton(
+                    onSelect = {
+                        scope.launch {
+                            DrawCanvas.drawText.emit("Hello World")
+                        }
+                    },
+                    iconId = R.drawable.send,
+                    contentDescription = "Send text"
                 )
 
                 Box(

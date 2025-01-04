@@ -1,5 +1,6 @@
 package com.olup.notable
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.graphics.*
@@ -30,6 +31,8 @@ import java.io.FileOutputStream
 import java.io.IOException
 
 
+
+@SuppressLint("ModifierFactoryUnreferencedReceiver")
 fun Modifier.noRippleClickable(
     onClick: () -> Unit
 ): Modifier = composed {
@@ -461,5 +464,3 @@ fun shareBitmap(context: Context, bitmap: Bitmap) {
 
     ContextCompat.startActivity(context, Intent.createChooser(sendIntent, "Choose an app"), null)
 }
-
-
