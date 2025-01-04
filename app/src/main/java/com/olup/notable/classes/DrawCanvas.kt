@@ -202,6 +202,7 @@ class DrawCanvas(
                 Log.i(TAG, "Received text to draw: $text")
                 textToDraw = text
                 drawTextToCanvas()
+                refreshUi()
             }
         }
 

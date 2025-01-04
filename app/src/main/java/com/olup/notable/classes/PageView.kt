@@ -183,7 +183,10 @@ class PageView(
     }
 
     fun drawArea(area: Rect, ignoredStrokeIds: List<String> = listOf(), canvas: Canvas? = null) {
+        // Determine which canvas to use (either the provided one or the default windowedCanvas)
         val activeCanvas = canvas ?: windowedCanvas
+
+        // adjust the area to account for the current scroll position
         val pageArea = Rect(
             area.left,
             area.top + scroll,
@@ -191,33 +194,51 @@ class PageView(
             area.bottom + scroll
         )
 
+        // save the current state of the canvas
         activeCanvas.save();
+
+        // clip the canvas to the specified area to ensure drawing is confined within it
         activeCanvas.clipRect(area);
+
+        // clear the area with a black color
         activeCanvas.drawColor(Color.BLACK)
 
+        // measure the time taken to draw the background
         val timeToBg = measureTimeMillis {
             drawBg(activeCanvas, pageFromDb?.nativeTemplate ?: "blank", scroll)
         }
         Log.i(TAG, "Took ${timeToBg}ms to draw the BG")
 
+        // measure the time taken to draw the strokes
         val timeToDraw = measureTimeMillis {
             strokes.forEach { stroke ->
+                // skips the strokes that are in the ignored list
                 if (ignoredStrokeIds.contains(stroke.id)) return@forEach
+
+                // get the bounds of the stroke
                 val bounds = strokeBounds(stroke)
-                // if stroke is not inside page section
+
+                // check if the stroke intersects with the area being drawn
                 if (!bounds.toRect().intersect(pageArea)) return@forEach
 
+                // draw the stroke on the canvas, adjusting for the scroll position
                 drawStroke(
                     activeCanvas, stroke, IntOffset(0, -scroll)
                 )
-
-                //draw text
-                renderText(activeCanvas)
-
             }
         }
 
         Log.i(TAG, "Drew area in ${timeToDraw}ms")
+
+        val timeToText = measureTimeMillis {
+            //draw text
+            renderText(activeCanvas)
+            Log.i(TAG, "renderTextCompleted!")
+        }
+
+        Log.i(TAG, "Drew text in ${timeToText}ms")
+
+
         activeCanvas.restore();
     }
 
@@ -272,6 +293,7 @@ class PageView(
 
     // Add a method to update the text
     fun updateTextToRender(text: String?) {
+        Log.i(TAG, "updateTextToRender updated text: $text")
         textToRender = text
         // Trigger a redraw
         drawArea(Rect(0, 0, viewWidth, viewHeight))
@@ -279,6 +301,7 @@ class PageView(
 
     // Modify renderText to use the stored text
     private fun renderText(canvas: Canvas) {
+        Log.i(TAG, "renderText, vw: $viewWidth, vh: $viewHeight, scroll: $scroll")
         textToRender?.let { text ->
             val textPaint = Paint().apply {
                 color = Color.BLACK
@@ -286,10 +309,11 @@ class PageView(
                 isAntiAlias = true
                 textAlign = Paint.Align.CENTER
             }
+
             val centerX = viewWidth / 2f
             val centerY = viewHeight / 2f
+            Log.i(TAG, "drawing text at x: $centerX, y: $centerY")
             canvas.drawText(text, centerX, centerY, textPaint)
         }
     }
 }
-
