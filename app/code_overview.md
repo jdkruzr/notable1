@@ -1,5 +1,9 @@
 # Notable Code Overview
 
+This is android app for writing notes for e-ink devices like Boox
+Target Android SDK is 33
+
+
 ## Core Application Classes
 - **MainActivity.kt**: Main entry point for the Android application
 - **NotableApp.kt**: Application class that initializes core components
