@@ -197,11 +197,9 @@ class DrawCanvas(
 
         // observe drawText
         coroutineScope.launch {
-            Log.i(TAG, "Starting drawText observer")
             drawText.collect { text ->
                 Log.i(TAG, "Received text to draw: $text")
                 textToDraw = text
-                drawTextToCanvas()
                 refreshUi()
             }
         }
@@ -320,6 +318,8 @@ class DrawCanvas(
             }
         }
 
+        renderText(canvas)
+
         // finish rendering
         this.holder.unlockCanvasAndPost(canvas)
     }
@@ -380,37 +380,17 @@ class DrawCanvas(
     }
 
 
-    private fun getScreenCenter(): PointF {
-        val centerX = width / 2f
-        val centerY = height / 2f + page.scroll
-        return PointF(centerX, centerY)
-    }
-
-    private fun drawTextToCanvas() {
-        Log.i(TAG, "Attempting to draw text: $textToDraw")
-        val center = getScreenCenter()
-        Log.i(TAG, "Screen center coordinates: $center")
-
-        val paint = Paint().apply {
-            color = Color.BLACK // Ensure the color is visible
-            textSize = 60f // Ensure the text size is large enough
-            textAlign = Paint.Align.CENTER // Ensure alignment is correct
-        }
-
-        val canvas = this.holder.lockCanvas()
-        if (canvas == null) {
-            Log.e(TAG, "Failed to lock canvas")
-            return
-        }
-
-        try {
-            Log.i(TAG, "Drawing text to canvas")
-            page.updateTextToRender(textToDraw)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error drawing text: ${e.message}")
-        } finally {
-            Log.i(TAG, "Unlocking canvas")
-            this.holder.unlockCanvasAndPost(canvas)
+    private fun renderText(canvas: Canvas) {
+        textToDraw?.let { text ->
+            val paint = Paint().apply {
+                color = Color.BLACK
+                textSize = 60f
+                textAlign = Paint.Align.CENTER
+            }
+            val centerX = canvas.width / 2f
+            val centerY = canvas.height / 2f
+            Log.i(TAG, "drawing Text in renderText() at $centerX, $centerY")
+            canvas.drawText(text, centerX, centerY, paint)
         }
     }
 

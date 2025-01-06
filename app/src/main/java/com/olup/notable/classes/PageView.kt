@@ -45,8 +45,6 @@ class PageView(
 
     var db = AppDatabase.getDatabase(context)?.strokeDao()!!
 
-    private var textToRender: String? by mutableStateOf(null)
-
     init {
         coroutineScope.launch {
             saveTopic.debounce(1000).collect {
@@ -230,15 +228,6 @@ class PageView(
 
         Log.i(TAG, "Drew area in ${timeToDraw}ms")
 
-        val timeToText = measureTimeMillis {
-            //draw text
-            renderText(activeCanvas)
-            Log.i(TAG, "renderTextCompleted!")
-        }
-
-        Log.i(TAG, "Drew text in ${timeToText}ms")
-
-
         activeCanvas.restore();
     }
 
@@ -291,29 +280,5 @@ class PageView(
         }
     }
 
-    // Add a method to update the text
-    fun updateTextToRender(text: String?) {
-        Log.i(TAG, "updateTextToRender updated text: $text")
-        textToRender = text
-        // Trigger a redraw
-        drawArea(Rect(0, 0, viewWidth, viewHeight))
-    }
 
-    // Modify renderText to use the stored text
-    private fun renderText(canvas: Canvas) {
-        Log.i(TAG, "renderText, vw: $viewWidth, vh: $viewHeight, scroll: $scroll")
-        textToRender?.let { text ->
-            val textPaint = Paint().apply {
-                color = Color.BLACK
-                textSize = 50f
-                isAntiAlias = true
-                textAlign = Paint.Align.CENTER
-            }
-
-            val centerX = viewWidth / 2f
-            val centerY = viewHeight / 2f
-            Log.i(TAG, "drawing text at x: $centerX, y: $centerY")
-            canvas.drawText(text, centerX, centerY, textPaint)
-        }
-    }
 }
