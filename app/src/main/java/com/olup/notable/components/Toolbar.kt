@@ -17,6 +17,14 @@ import io.shipbook.shipbooksdk.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.google.mlkit.vision.digitalink.DigitalInkRecognition
+import com.google.mlkit.vision.digitalink.DigitalInkRecognitionModelIdentifier
+import com.google.mlkit.vision.digitalink.DigitalInkRecognizerOptions
+import com.google.mlkit.vision.digitalink.Ink
+import com.google.mlkit.vision.digitalink.DigitalInkRecognitionModel
+import com.google.mlkit.common.model.DownloadConditions
+import com.google.mlkit.common.model.RemoteModelManager
+
 
 fun PresentlyUsedToolIcon(mode: Mode, pen: Pen): Int {
     return when (mode) {
@@ -233,17 +241,75 @@ fun Toolbar(
                         scope.launch {
                             try {
                                 DrawCanvas.startLoading.emit(Unit)
-                                // Call your AWS Lambda function here
-                                delay(3000)
-                                val response = "Hello World" // Replace with actual API call
-                                DrawCanvas.drawText.emit(response)
-                            } finally {
+                                
+                                // Clear the screen first
+                                state.pageView.clear()
+                                DrawCanvas.refreshUi.emit(Unit)
+                                
+                                // Get strokes from the page and convert them to MLKit format
+                                val inkBuilder = Ink.builder()
+                                state.pageView.strokes.forEach { stroke ->
+                                    val strokeBuilder = Ink.Stroke.builder()
+                                    stroke.points.forEach { point ->
+                                        strokeBuilder.addPoint(Ink.Point.create(point.x, point.y))
+                                    }
+                                    inkBuilder.addStroke(strokeBuilder.build())
+                                }
+                                
+                                // Get the model identifier
+                                val modelIdentifier = DigitalInkRecognitionModelIdentifier.fromLanguageTag("en-US")
+                                    ?: throw Exception("Model not found")
+
+                                // Download the model if needed and get the recognizer
+                                val model = DigitalInkRecognitionModel.builder(modelIdentifier).build()
+                                
+                                // Download model if needed
+                                val modelManager = RemoteModelManager.getInstance()
+                                modelManager.download(model, DownloadConditions.Builder().build())
+                                    .addOnSuccessListener {
+                                        scope.launch {
+                                            try {
+                                                // Create recognizer after model is downloaded
+                                                val recognizer = DigitalInkRecognition.getClient(
+                                                    DigitalInkRecognizerOptions.builder(model).build()
+                                                )
+
+                                                // Perform recognition
+                                                recognizer.recognize(inkBuilder.build())
+                                                    .addOnSuccessListener { result ->
+                                                        scope.launch {
+                                                            DrawCanvas.stopLoading.emit(Unit)
+                                                            val text = result.candidates[0].text
+                                                            DrawCanvas.drawText.emit(text)
+                                                        }
+                                                    }
+                                                    .addOnFailureListener { e ->
+                                                        scope.launch {
+                                                            DrawCanvas.stopLoading.emit(Unit)
+                                                            Log.e("Toolbar", "Error recognizing text", e)
+                                                        }
+                                                    }
+                                            } catch (e: Exception) {
+                                                Log.e("Toolbar", "Error after model download", e)
+                                                DrawCanvas.stopLoading.emit(Unit)
+                                            }
+                                        }
+                                    }
+                                    .addOnFailureListener { e ->
+                                        scope.launch {
+                                            DrawCanvas.stopLoading.emit(Unit)
+                                            Log.e("Toolbar", "Error downloading model", e)
+                                        }
+                                    }
+                                
+                            } catch (e: Exception) {
+                                Log.e("Toolbar", "Error in text recognition", e)
                                 DrawCanvas.stopLoading.emit(Unit)
                             }
                         }
                     },
                     iconId = R.drawable.send,
-                    contentDescription = "Send text"
+                    contentDescription = "Recognize text"
                 )
 
                 Box(

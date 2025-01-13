@@ -280,5 +280,18 @@ class PageView(
         }
     }
 
+    fun clear() {
+        // Remove all strokes
+        val strokeIds = strokes.map { it.id }
+        removeStrokes(strokeIds)
+        
+        // Clear the canvas
+        windowedCanvas.drawColor(Color.WHITE)
+        drawBg(windowedCanvas, pageFromDb?.nativeTemplate ?: "blank", scroll)
+        
+        // Force refresh
+        drawArea(Rect(0, 0, windowedCanvas.width, windowedCanvas.height))
+        persistBitmapDebounced()
+    }
 
 }

@@ -40,6 +40,8 @@ class DrawCanvas(
     private val commitHistorySignal = MutableSharedFlow<Unit>()
 
     private var textToDraw: String? = null
+    private var textProgress = 0f
+    private var textAnimationJob: Job? = null
 
     private var isLoading = false
     private var rotationAngle = 0f
@@ -206,8 +208,7 @@ class DrawCanvas(
         coroutineScope.launch {
             drawText.collect { text ->
                 Log.i(TAG, "Received text to draw: $text")
-                textToDraw = text
-                refreshUi()
+                startTextAnimation(text)
             }
         }
 
@@ -407,17 +408,87 @@ class DrawCanvas(
     }
 
 
+    private fun startTextAnimation(text: String) {
+        textToDraw = text
+        textProgress = 0f
+        
+        textAnimationJob?.cancel()
+        textAnimationJob = coroutineScope.launch {
+            // Animate over 1 second with 5 steps (200ms each)
+            repeat(5) {
+                textProgress = (it + 1) / 5f
+                refreshUi()
+                delay(200)
+            }
+            // Clear after animation
+            delay(30000)
+            textToDraw = null
+            textProgress = 0f
+            refreshUi()
+        }
+    }
+
     private fun renderText(canvas: Canvas) {
         textToDraw?.let { text ->
             val paint = Paint().apply {
                 color = Color.BLACK
                 textSize = 60f
-                textAlign = Paint.Align.CENTER
+                textAlign = Paint.Align.LEFT
+                style = Paint.Style.FILL
+                strokeWidth = 2f
             }
-            val centerX = canvas.width / 2f
-            val centerY = canvas.height / 2f
-            Log.i(TAG, "drawing Text in renderText() at $centerX, $centerY")
-            canvas.drawText(text, centerX, centerY, paint)
+
+            // Calculate available space with margins
+            val margin = 100f
+            val maxWidth = canvas.width - (margin * 2)
+            
+            // Break text into lines
+            val lines = mutableListOf<String>()
+            val words = text.split(" ")
+            var currentLine = StringBuilder()
+            
+            words.forEach { word ->
+                val testLine = if (currentLine.isEmpty()) word else "${currentLine} $word"
+                val measureWidth = paint.measureText(testLine)
+                
+                if (measureWidth <= maxWidth) {
+                    currentLine.append(if (currentLine.isEmpty()) word else " $word")
+                } else {
+                    if (currentLine.isNotEmpty()) {
+                        lines.add(currentLine.toString())
+                        currentLine = StringBuilder(word)
+                    } else {
+                        // If single word is too long, break it
+                        lines.add(word)
+                    }
+                }
+            }
+            if (currentLine.isNotEmpty()) {
+                lines.add(currentLine.toString())
+            }
+
+            // Calculate total height needed
+            val lineHeight = paint.fontSpacing
+            val totalHeight = lineHeight * lines.size
+            
+            // Calculate starting Y position to center text block
+            val startY = (canvas.height - totalHeight) / 2
+            
+            canvas.save()
+            
+            // Scale effect from center
+            val scale = 0.0f + (1f * textProgress)
+            canvas.scale(scale, scale, canvas.width / 2f, canvas.height / 2f)
+            
+            // Draw each line
+            lines.forEachIndexed { index, line ->
+                val lineWidth = paint.measureText(line)
+                val x = (canvas.width - lineWidth * scale) / 2
+                val y = startY + (index + 1) * lineHeight
+                canvas.drawText(line, x / scale, y, paint)
+            }
+            
+            canvas.restore()
         }
     }
 
