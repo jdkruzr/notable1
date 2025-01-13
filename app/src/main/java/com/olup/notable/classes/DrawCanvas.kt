@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlin.concurrent.thread
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 
 
 val pressure = EpdController.getMaxTouchPressure()
@@ -39,6 +41,9 @@ class DrawCanvas(
 
     private var textToDraw: String? = null
 
+    private var isLoading = false
+    private var rotationAngle = 0f
+    private var loadingAnimationJob: Job? = null
 
     companion object {
         var forceUpdate = MutableSharedFlow<Rect?>()
@@ -46,6 +51,8 @@ class DrawCanvas(
         var isDrawing = MutableSharedFlow<Boolean>()
         var restartAfterConfChange = MutableSharedFlow<Unit>()
         var drawText = MutableSharedFlow<String>()
+        var startLoading = MutableSharedFlow<Unit>()
+        var stopLoading = MutableSharedFlow<Unit>()
     }
 
     fun getActualState(): EditorState {
@@ -286,6 +293,21 @@ class DrawCanvas(
             }
         }
 
+        // Add loading state observers
+        coroutineScope.launch {
+            startLoading.collect {
+                isLoading = true
+                startLoadingAnimation()
+            }
+        }
+
+        coroutineScope.launch {
+            stopLoading.collect {
+                isLoading = false
+                loadingAnimationJob?.cancel()
+                refreshUi()
+            }
+        }
     }
 
     fun refreshUi() {
@@ -316,6 +338,11 @@ class DrawCanvas(
                 })
                 canvas.drawPath(path, selectPaint)
             }
+        }
+
+        // Draw loading spinner if loading
+        if (isLoading) {
+            drawLoadingSpinner(canvas)
         }
 
         renderText(canvas)
@@ -394,4 +421,39 @@ class DrawCanvas(
         }
     }
 
+    private fun startLoadingAnimation() {
+        loadingAnimationJob?.cancel()
+        loadingAnimationJob = coroutineScope.launch {
+            while (isLoading) {
+                rotationAngle = (rotationAngle + 10) % 360
+                refreshUi()
+                delay(50) // Control animation speed
+            }
+        }
+    }
+
+    private fun drawLoadingSpinner(canvas: Canvas) {
+        if (!isLoading) return
+
+        val centerX = canvas.width / 2f
+        val centerY = canvas.height / 2f
+        val radius = 50f
+
+        canvas.save()
+        canvas.rotate(rotationAngle, centerX, centerY)
+        
+        // Draw spinning arc
+        val rect = RectF(centerX - radius, centerY - radius, centerX + radius, centerY + radius)
+        canvas.drawArc(rect, 0f, 270f, false, loadingPaint)
+        
+        canvas.restore()
+    }
+
+    // Add loading animation paint
+    private val loadingPaint = Paint().apply {
+        color = Color.GRAY
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+        isAntiAlias = true
+    }
 }

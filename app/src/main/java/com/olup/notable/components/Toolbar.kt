@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.shipbook.shipbooksdk.Log
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 fun PresentlyUsedToolIcon(mode: Mode, pen: Pen): Int {
@@ -230,7 +231,15 @@ fun Toolbar(
                 ToolbarButton(
                     onSelect = {
                         scope.launch {
-                            DrawCanvas.drawText.emit("Hello World")
+                            try {
+                                DrawCanvas.startLoading.emit(Unit)
+                                // Call your AWS Lambda function here
+                                delay(3000)
+                                val response = "Hello World" // Replace with actual API call
+                                DrawCanvas.drawText.emit(response)
+                            } finally {
+                                DrawCanvas.stopLoading.emit(Unit)
+                            }
                         }
                     },
                     iconId = R.drawable.send,
