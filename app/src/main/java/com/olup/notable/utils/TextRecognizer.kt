@@ -101,8 +101,11 @@ class TextRecognizer {
                                                         DrawCanvas.startLoading.emit(Unit)
                                                         
                                                         try {
-                                                            // Get completion from API Gateway
-                                                            val response = LambdaService.getCompletion(recognizedText)
+                                                            // Create LambdaService instance with context
+                                                            val lambdaService = LambdaService(pageView.context)
+                                                            
+                                                            // Get completion from API Gateway with pageId
+                                                            val response = lambdaService.getCompletion(pageView.id, recognizedText)
                                                             
                                                             // Clear the screen
                                                             pageView.clear()
