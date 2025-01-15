@@ -124,13 +124,6 @@ dependencies {
     implementation "com.beust:klaxon:5.5"
 
     implementation 'io.shipbook:shipbooksdk:1.+'
-    
-    // AWS SDK v2
-    implementation(platform("software.amazon.awssdk:bom:2.27.21"))
-    implementation("software.amazon.awssdk:s3")
-    implementation("software.amazon.awssdk:lambda")
-    implementation("software.amazon.awssdk:cognitoidentityprovider")
-
 
 }
 

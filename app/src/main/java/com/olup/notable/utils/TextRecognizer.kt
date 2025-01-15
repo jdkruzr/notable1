@@ -94,12 +94,34 @@ class TextRecognizer {
                                             .addOnSuccessListener { result ->
                                                 scope.launch {
                                                     if (result.candidates.isNotEmpty()) {
-                                                        val text = result.candidates[0].text
-                                                        Log.i(TAG, "Recognition success: '$text'")
-                                                        // Clear the screen only after successful recognition
-                                                        pageView.clear()
-                                                        DrawCanvas.refreshUi.emit(Unit)
-                                                        onTextRecognized(text)
+                                                        val recognizedText = result.candidates[0].text
+                                                        Log.i(TAG, "Recognition success: '$recognizedText'")
+                                                        
+                                                        // Show loading indicator
+                                                        DrawCanvas.startLoading.emit(Unit)
+                                                        
+                                                        try {
+                                                            // Get completion from API Gateway
+                                                            val response = LambdaService.getCompletion(recognizedText)
+                                                            
+                                                            // Clear the screen
+                                                            pageView.clear()
+                                                            DrawCanvas.refreshUi.emit(Unit)
+                                                            
+                                                            // Call onTextRecognized first with empty string to prevent override
+                                                            onTextRecognized("")
+                                                            
+                                                            // Show the API response
+                                                            DrawCanvas.drawText.emit(response)
+                                                            
+                                                        } catch (e: Exception) {
+                                                            Log.e(TAG, "Error getting completion", e)
+                                                            // In case of error, show the original text
+                                                            onTextRecognized(recognizedText)
+                                                        } finally {
+                                                            // Hide loading indicator
+                                                            DrawCanvas.stopLoading.emit(Unit)
+                                                        }
                                                     } else {
                                                         Log.e(TAG, "No text candidates found")
                                                     }
@@ -139,4 +161,4 @@ class TextRecognizer {
             }
         }
     }
-} 
+}

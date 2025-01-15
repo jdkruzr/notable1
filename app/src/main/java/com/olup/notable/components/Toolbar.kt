@@ -17,16 +17,6 @@ import io.shipbook.shipbooksdk.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import com.google.mlkit.vision.digitalink.DigitalInkRecognition
-import com.google.mlkit.vision.digitalink.DigitalInkRecognitionModelIdentifier
-import com.google.mlkit.vision.digitalink.DigitalInkRecognizerOptions
-import com.google.mlkit.vision.digitalink.Ink
-import com.google.mlkit.vision.digitalink.DigitalInkRecognitionModel
-import com.google.mlkit.common.model.DownloadConditions
-import com.google.mlkit.common.model.RemoteModelManager
-import com.google.mlkit.vision.digitalink.RecognitionContext
-import com.google.mlkit.vision.digitalink.WritingArea
-
 
 fun PresentlyUsedToolIcon(mode: Mode, pen: Pen): Int {
     return when (mode) {
@@ -67,12 +57,10 @@ fun Toolbar(
             state.mode = Mode.Draw
             state.pen = pen
         }
-
     }
 
     fun handleEraser() {
         state.mode = Mode.Erase
-
     }
 
     fun handleSelection() {
@@ -84,7 +72,6 @@ fun Toolbar(
         settings[penName] = setting.copy()
         state.penSettings = settings
     }
-
 
     if (isPageSettingsModalOpen) {
         PageSettingsModal(pageView = state.pageView) {
@@ -100,7 +87,6 @@ fun Toolbar(
                     .background(Color.White)
                     .height(37.dp)
                     .fillMaxWidth()
-
             ) {
                 ToolbarButton(
                     onSelect = {
@@ -237,7 +223,6 @@ fun Toolbar(
                         .background(Color.Black)
                 )
 
-
                 ToolbarButton(
                     onSelect = {
                         scope.launch {
@@ -270,10 +255,8 @@ fun Toolbar(
                 if (state.bookId != null) {
                     val book = AppRepository(context).bookRepository.getById(state.bookId)
 
-                    // TODO maybe have generic utils for this ?
                     val pageNumber = book!!.pageIds.indexOf(state.pageId) + 1
                     val totalPageNumber = book!!.pageIds.size
-
 
                     Box(
                         contentAlignment = Alignment.Center,
@@ -316,16 +299,43 @@ fun Toolbar(
                     .height(1.dp)
                     .background(Color.Black)
             )
-
-
         }
     } else {
-        ToolbarButton(
-            onSelect = { state.isToolbarOpen = true },
-            iconId = PresentlyUsedToolIcon(state.mode, state.pen),
-            contentDescription = "open toolbar",
+        Row(
             modifier = Modifier.height(37.dp)
-        )
-
+        ) {
+            ToolbarButton(
+                onSelect = { state.isToolbarOpen = true },
+                iconId = PresentlyUsedToolIcon(state.mode, state.pen),
+                contentDescription = "open toolbar"
+            )
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .width(0.5.dp)
+                    .background(Color.Black)
+            )
+            ToolbarButton(
+                onSelect = {
+                    scope.launch {
+                        TextRecognizer.recognizeText(
+                            scope = scope,
+                            pageView = state.pageView,
+                            onStart = {
+                                DrawCanvas.startLoading.emit(Unit)
+                            },
+                            onComplete = {
+                                DrawCanvas.stopLoading.emit(Unit)
+                            },
+                            onTextRecognized = { text ->
+                                DrawCanvas.drawText.emit(text)
+                            }
+                        )
+                    }
+                },
+                iconId = R.drawable.send,
+                contentDescription = "Send to AI"
+            )
+        }
     }
 }

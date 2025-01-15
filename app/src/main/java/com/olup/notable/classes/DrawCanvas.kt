@@ -409,29 +409,26 @@ class DrawCanvas(
 
 
     private fun startTextAnimation(text: String) {
-        textToDraw = text
-        textProgress = 0f
-        
         textAnimationJob?.cancel()
+        textToDraw = null
+        
+        // Split full text into words
+        val allWords = text.split(" ")
+        var currentChunk = 0
+        
         textAnimationJob = coroutineScope.launch {
-            // Animate over 500ms with 20 steps
-            repeat(20) {
-                textProgress = (it + 1) / 20f
+            // Display text in accumulating chunks of 100 words
+            while (currentChunk * 100 < allWords.size) {
+                val endIndex = minOf((currentChunk + 1) * 100, allWords.size)
+                
+                // Show all text up to current chunk
+                textToDraw = allWords.subList(0, endIndex).joinToString(" ")
                 refreshUi()
-                delay(25)
+                
+                // Wait 1 second before adding next chunk
+                delay(1000)
+                currentChunk++
             }
-            // Keep fully visible for 3 seconds
-            delay(3000)
-            // Fade out
-            repeat(20) {
-                textProgress = 1f - (it + 1) / 20f
-                refreshUi()
-                delay(25)
-            }
-            // Clear after animation
-            textToDraw = null
-            textProgress = 0f
-            refreshUi()
         }
     }
 
@@ -439,20 +436,42 @@ class DrawCanvas(
         textToDraw?.let { text ->
             val paint = Paint().apply {
                 color = Color.BLACK
-                textSize = 60f
+                textSize = 40f
                 textAlign = Paint.Align.LEFT
                 style = Paint.Style.FILL
-                // Set alpha based on progress (0-255)
-                alpha = (textProgress * 255).toInt()
+                alpha = 255
             }
 
-            // Calculate text position (centered)
-            val textBounds = Rect()
-            paint.getTextBounds(text, 0, text.length, textBounds)
-            val x = (canvas.width - textBounds.width()) / 2f
-            val y = (canvas.height + textBounds.height()) / 2f
+            // Calculate line breaks
+            val maxWidth = canvas.width - 40f
+            val lines = ArrayList<String>()
+            var currentLine = ""
+            
+            text.split(" ").forEach { word ->
+                val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
+                val measureWidth = paint.measureText(testLine)
+                
+                if (measureWidth > maxWidth) {
+                    lines.add(currentLine)
+                    currentLine = word
+                } else {
+                    currentLine = testLine
+                }
+            }
+            if (currentLine.isNotEmpty()) {
+                lines.add(currentLine)
+            }
 
-            canvas.drawText(text, x, y, paint)
+            // Draw centered text block
+            val lineHeight = paint.fontSpacing
+            val totalHeight = lineHeight * lines.size
+            var y = (canvas.height - totalHeight) / 2f + lineHeight
+
+            lines.forEach { line ->
+                val x = (canvas.width - paint.measureText(line)) / 2f
+                canvas.drawText(line, x, y, paint)
+                y += lineHeight
+            }
         }
     }
 
