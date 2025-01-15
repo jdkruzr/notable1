@@ -7,6 +7,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.unit.dp
+import com.olup.notable.db.AppDatabase
 import com.onyx.android.sdk.api.device.epd.EpdController
 import com.onyx.android.sdk.data.note.TouchPoint
 import com.onyx.android.sdk.pen.RawInputCallback
@@ -409,45 +410,41 @@ class DrawCanvas(
 
 
     private fun startTextAnimation(text: String) {
-        textAnimationJob?.cancel()
-        textToDraw = null
-        
-        // Split full text into words
-        val allWords = text.split(" ")
-        var currentChunk = 0
-        
-        textAnimationJob = coroutineScope.launch {
-            // Display text in accumulating chunks of 100 words
-            while (currentChunk * 100 < allWords.size) {
-                val endIndex = minOf((currentChunk + 1) * 100, allWords.size)
-                
-                // Show all text up to current chunk
-                textToDraw = allWords.subList(0, endIndex).joinToString(" ")
-                refreshUi()
-                
-                // Wait 1 second before adding next chunk
-                delay(1000)
-                currentChunk++
-            }
-        }
+        // Instead of animating, just refresh UI to show all messages
+        refreshUi()
     }
 
     private fun renderText(canvas: Canvas) {
-        textToDraw?.let { text ->
-            val paint = Paint().apply {
-                color = Color.BLACK
-                textSize = 40f
-                textAlign = Paint.Align.LEFT
-                style = Paint.Style.FILL
-                alpha = 255
-            }
+        val messages = AppDatabase.getDatabase(_context).chatMessageDao().getMessagesForPage(page.id)
+        if (messages.isEmpty()) return
 
-            // Calculate line breaks
-            val maxWidth = canvas.width - 40f
+        val paint = Paint().apply {
+            color = Color.BLACK
+            textSize = 40f
+            textAlign = Paint.Align.LEFT
+            style = Paint.Style.FILL
+            alpha = 255
+        }
+
+        val maxWidth = canvas.width - 80f // More padding for better readability
+        var absoluteY = 60f // This is the absolute position before scroll
+        val lineHeight = paint.fontSpacing
+        val messageSpacing = lineHeight * 0.5f // Space between messages
+        val visibleRect = Rect(0, page.scroll, canvas.width, page.scroll + canvas.height)
+
+        messages.forEach { message ->
+            // Skip system messages
+            if (message.role == "system") return@forEach
+
+            // Format message with role prefix
+            val prefix = if (message.role == "assistant") "Assistant: " else "You: "
+            val fullText = prefix + message.content
+
+            // Calculate line breaks for this message
             val lines = ArrayList<String>()
             var currentLine = ""
             
-            text.split(" ").forEach { word ->
+            fullText.split(" ").forEach { word ->
                 val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
                 val measureWidth = paint.measureText(testLine)
                 
@@ -462,16 +459,26 @@ class DrawCanvas(
                 lines.add(currentLine)
             }
 
-            // Draw centered text block
-            val lineHeight = paint.fontSpacing
-            val totalHeight = lineHeight * lines.size
-            var y = (canvas.height - totalHeight) / 2f + lineHeight
+            // Calculate message height to check visibility
+            val messageHeight = (lines.size * lineHeight) + messageSpacing
+            val messageRect = RectF(0f, absoluteY, canvas.width.toFloat(), absoluteY + messageHeight)
 
-            lines.forEach { line ->
-                val x = (canvas.width - paint.measureText(line)) / 2f
-                canvas.drawText(line, x, y, paint)
-                y += lineHeight
+            // Only draw if message is visible in current scroll position
+            if (messageRect.intersects(visibleRect.left.toFloat(), visibleRect.top.toFloat(), 
+                                    visibleRect.right.toFloat(), visibleRect.bottom.toFloat())) {
+                // Draw message lines
+                lines.forEach { line ->
+                    val screenY = absoluteY - page.scroll // Convert absolute position to screen position
+                    canvas.drawText(line, 40f, screenY, paint)
+                    absoluteY += lineHeight
+                }
+            } else {
+                // Skip drawing but update position
+                absoluteY += messageHeight
             }
+
+            // Add spacing between messages
+            absoluteY += messageSpacing
         }
     }
 

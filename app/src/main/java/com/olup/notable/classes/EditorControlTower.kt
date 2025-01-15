@@ -58,7 +58,7 @@ class EditorControlTower(
     }
 
     fun onPageScroll(delta: Int) {
-//        page!!.updateScroll(delta)
+        page!!.updateScroll(delta)
     }
 
     fun applySelectionDisplace() {
