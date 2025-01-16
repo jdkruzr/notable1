@@ -459,26 +459,24 @@ class DrawCanvas(
                 lines.add(currentLine)
             }
 
-            // Calculate message height to check visibility
-            val messageHeight = (lines.size * lineHeight) + messageSpacing
+            // Calculate message height
+            val messageHeight = (lines.size * lineHeight)
             val messageRect = RectF(0f, absoluteY, canvas.width.toFloat(), absoluteY + messageHeight)
 
             // Only draw if message is visible in current scroll position
             if (messageRect.intersects(visibleRect.left.toFloat(), visibleRect.top.toFloat(), 
                                     visibleRect.right.toFloat(), visibleRect.bottom.toFloat())) {
+                var currentY = absoluteY
                 // Draw message lines
                 lines.forEach { line ->
-                    val screenY = absoluteY - page.scroll // Convert absolute position to screen position
+                    val screenY = currentY - page.scroll // Convert absolute position to screen position
                     canvas.drawText(line, 40f, screenY, paint)
-                    absoluteY += lineHeight
+                    currentY += lineHeight
                 }
-            } else {
-                // Skip drawing but update position
-                absoluteY += messageHeight
             }
 
-            // Add spacing between messages
-            absoluteY += messageSpacing
+            // Always increment absolute position by full message height
+            absoluteY += messageHeight + messageSpacing
         }
     }
 
