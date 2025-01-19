@@ -38,3 +38,25 @@ val MIGRATION_29_30 = object : Migration(29, 30) {
         database.execSQL("ALTER TABLE Image ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
     }
 }
+val MIGRATION_30_31 = object : Migration(29, 30) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        // Drop table if it exists to ensure clean migration
+        database.execSQL("DROP TABLE IF EXISTS ChatMessage")
+
+        // Create ChatMessage table with exact schema
+        database.execSQL("""
+            CREATE TABLE ChatMessage (
+                id TEXT NOT NULL PRIMARY KEY,
+                pageId TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                createdAt INTEGER NOT NULL DEFAULT 0,
+                `order` INTEGER NOT NULL,
+                FOREIGN KEY(pageId) REFERENCES Page(id) ON DELETE CASCADE
+            )
+        """)
+
+        // Create index on pageId
+        database.execSQL("CREATE INDEX index_ChatMessage_pageId ON ChatMessage (pageId)")
+    }
+}

@@ -40,8 +40,8 @@ class Converters {
 
 
 @Database(
-    entities = [Folder::class, Notebook::class, Page::class, Stroke::class, Image::class, Kv::class],
-    version = 30,
+    entities = [Folder::class, Notebook::class, Page::class, Stroke::class, Image::class, Kv::class, ChatMessage::class],
+    version = 31,
     autoMigrations = [
         AutoMigration(19, 20),
         AutoMigration(20, 21),
@@ -53,6 +53,7 @@ class Converters {
         AutoMigration(27, 28),
         AutoMigration(28, 29),
         AutoMigration(29, 30),
+        AutoMigration(30, 31),
     ], exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -64,6 +65,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun pageDao(): PageDao
     abstract fun strokeDao(): StrokeDao
     abstract fun ImageDao(): ImageDao
+    abstract fun chatMessageDao(): ChatMessageDao
 
     companion object {
         private var INSTANCE: AppDatabase? = null
@@ -86,7 +88,8 @@ abstract class AppDatabase : RoomDatabase() {
                             .addMigrations(
                                 MIGRATION_16_17,
                                 MIGRATION_17_18,
-                                MIGRATION_22_23
+                                MIGRATION_22_23,
+                                MIGRATION_30_31
                             )
                             .build()
                 }

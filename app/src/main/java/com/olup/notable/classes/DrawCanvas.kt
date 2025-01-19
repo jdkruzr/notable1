@@ -2,9 +2,11 @@ package com.olup.notable
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.RectF
 import android.net.Uri
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -13,6 +15,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.olup.notable.db.AppDatabase
 import com.olup.notable.db.Image
 import com.olup.notable.db.ImageRepository
 import com.olup.notable.db.handleSelect
@@ -26,6 +29,8 @@ import io.shipbook.shipbooksdk.Log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.debounce
@@ -53,6 +58,13 @@ class DrawCanvas(
     private val strokeHistoryBatch = mutableListOf<String>()
 //    private val commitHistorySignal = MutableSharedFlow<Unit>()
 
+    private var textToDraw: String? = null
+    private var textProgress = 0f
+    private var textAnimationJob: Job? = null
+
+    private var isLoading = false
+    private var rotationAngle = 0f
+    private var loadingAnimationJob: Job? = null
 
     companion object {
         var forceUpdate = MutableSharedFlow<Rect?>()
@@ -71,6 +83,9 @@ class DrawCanvas(
         // There is probably better way
         var addImageByUri = MutableStateFlow<Uri?>(null)
         var imageCoordinateToSelect = MutableStateFlow<Pair<Int, Int>?>(null)
+        var drawText = MutableSharedFlow<String>()
+        var startLoading = MutableSharedFlow<Unit>()
+        var stopLoading = MutableSharedFlow<Unit>()
     }
 
     fun getActualState(): EditorState {
@@ -179,6 +194,7 @@ class DrawCanvas(
                 Log.i(TAG, "surface created $holder")
                 // set up the drawing surface
                 updateActiveSurface()
+
                 // This is supposed to let the ui update while the old surface is being unmounted
                 coroutineScope.launch {
                     forceUpdate.emit(null)
@@ -231,6 +247,14 @@ class DrawCanvas(
             }
         }
 
+        // observe drawText
+        coroutineScope.launch {
+            drawText.collect { text ->
+                Log.i(TAG, "Received text to draw: $text")
+                startTextAnimation(text)
+            }
+        }
+
         // observe refreshUi
         coroutineScope.launch {
             refreshUi.collect {
@@ -269,6 +293,8 @@ class DrawCanvas(
                 Log.i(TAG + "Observer", "Configuration changed!")
                 init()
                 drawCanvasToView()
+                // I think that it is not necessary
+               // refreshUi()
             }
         }
 
@@ -331,6 +357,21 @@ class DrawCanvas(
             commitHistorySignalImmediately.collect() {
                 commitToHistory()
                 commitCompletion.complete(Unit)
+            }
+        }
+        // Add loading state observers
+        coroutineScope.launch {
+            startLoading.collect {
+                isLoading = true
+                startLoadingAnimation()
+            }
+        }
+
+        coroutineScope.launch {
+            stopLoading.collect {
+                isLoading = false
+                loadingAnimationJob?.cancel()
+                refreshUi()
             }
         }
 
@@ -445,6 +486,14 @@ class DrawCanvas(
             }
         }
         Log.i(TAG, "drawCanvasToView: Took ${timeToDraw}ms.")
+
+        // Draw loading spinner if loading
+        if (isLoading) {
+            drawLoadingSpinner(canvas)
+        }
+
+        renderText(canvas)
+
         // finish rendering
         this.holder.unlockCanvasAndPost(canvas)
     }
@@ -510,4 +559,111 @@ class DrawCanvas(
         refreshUi()
     }
 
+
+    private fun startTextAnimation(text: String) {
+        // Instead of animating, just refresh UI to show all messages
+        refreshUi()
+    }
+
+    private fun renderText(canvas: Canvas) {
+        val messages = AppDatabase.getDatabase(context).chatMessageDao().getMessagesForPage(page.id)
+        if (messages.isEmpty()) return
+
+        val paint = Paint().apply {
+            color = Color.BLACK
+            textSize = 40f
+            textAlign = Paint.Align.LEFT
+            style = Paint.Style.FILL
+            alpha = 255
+        }
+
+        val maxWidth = canvas.width - 80f // More padding for better readability
+        var absoluteY = 60f // This is the absolute position before scroll
+        val lineHeight = paint.fontSpacing
+        val messageSpacing = lineHeight * 0.5f // Space between messages
+        val visibleRect = Rect(0, page.scroll, canvas.width, page.scroll + canvas.height)
+
+        messages.forEach { message ->
+            // Skip system messages
+            if (message.role == "system") return@forEach
+
+            // Format message with role prefix
+            val prefix = if (message.role == "assistant") "Assistant: " else "You: "
+            val fullText = prefix + message.content
+
+            // Calculate line breaks for this message
+            val lines = ArrayList<String>()
+            var currentLine = ""
+
+            fullText.split(" ").forEach { word ->
+                val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
+                val measureWidth = paint.measureText(testLine)
+
+                if (measureWidth > maxWidth) {
+                    lines.add(currentLine)
+                    currentLine = word
+                } else {
+                    currentLine = testLine
+                }
+            }
+            if (currentLine.isNotEmpty()) {
+                lines.add(currentLine)
+            }
+
+            // Calculate message height
+            val messageHeight = (lines.size * lineHeight)
+            val messageRect = RectF(0f, absoluteY, canvas.width.toFloat(), absoluteY + messageHeight)
+
+            // Only draw if message is visible in current scroll position
+            if (messageRect.intersects(visibleRect.left.toFloat(), visibleRect.top.toFloat(),
+                                    visibleRect.right.toFloat(), visibleRect.bottom.toFloat())) {
+                var currentY = absoluteY
+                // Draw message lines
+                lines.forEach { line ->
+                    val screenY = currentY - page.scroll // Convert absolute position to screen position
+                    canvas.drawText(line, 40f, screenY, paint)
+                    currentY += lineHeight
+                }
+            }
+
+            // Always increment absolute position by full message height
+            absoluteY += messageHeight + messageSpacing
+        }
+    }
+
+    private fun startLoadingAnimation() {
+        loadingAnimationJob?.cancel()
+        loadingAnimationJob = coroutineScope.launch {
+            while (isLoading) {
+                rotationAngle = (rotationAngle + 10) % 360
+                refreshUi()
+                delay(50) // Control animation speed
+            }
+        }
+    }
+
+    private fun drawLoadingSpinner(canvas: Canvas) {
+        if (!isLoading) return
+
+        val centerX = canvas.width / 2f
+        val centerY = canvas.height / 2f
+        val radius = 50f
+
+        canvas.save()
+        canvas.rotate(rotationAngle, centerX, centerY)
+
+        // Draw spinning arc
+        val rect = RectF(centerX - radius, centerY - radius, centerX + radius, centerY + radius)
+        canvas.drawArc(rect, 0f, 270f, false, loadingPaint)
+
+        canvas.restore()
+    }
+
+    // Add loading animation paint
+    private val loadingPaint = Paint().apply {
+        color = Color.GRAY
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+        isAntiAlias = true
+    }
 }

@@ -95,19 +95,18 @@ fun Toolbar(
     var isImageLoaded by remember { mutableStateOf(false) }
 
     // Create an activity result launcher for picking visual media (images in this case)
-    val pickMedia =
-        rememberLauncherForActivityResult(contract = PickVisualMedia()) { uri ->
-            uri?.let {
-                // Grant read URI permission to access the selected URI
-                val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(uri, flag)
-                // Set isImageLoaded to true
-                isImageLoaded = true
-                Log.i("InsertImage", "Hura! We have uri: $uri")
-                DrawCanvas.addImageByUri.value = uri
+    val pickMedia = rememberLauncherForActivityResult(contract = PickVisualMedia()) { uri ->
+        uri?.let {
+            // Grant read URI permission to access the selected URI
+            val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            context.contentResolver.takePersistableUriPermission(uri, flag)
+            // Set isImageLoaded to true
+            isImageLoaded = true
+            Log.i("InsertImage", "Hura! We have uri: $uri")
+            DrawCanvas.addImageByUri.value = uri
 
-            }
         }
+    }
 
     LaunchedEffect(isMenuOpen) {
         state.isDrawing = !isMenuOpen
@@ -156,25 +155,21 @@ fun Toolbar(
 
     // Show Color Selection Dialog
     if (isColorSelectionDialogOpen) {
-        ColorSelectionDialog(
-            currentColor = selectedColor,
-            onSelect = { color ->
-                selectedColor = color
-                changePenColor(color) // Change pen color for all pens
-                isColorSelectionDialogOpen = false
-            },
-            onClose = { isColorSelectionDialogOpen = false },
-            options = listOf(
-                Color.Red,
-                Color.Green,
-                Color.Blue,
-                Color.Cyan,
-                Color.Magenta,
-                Color.Yellow,
-                Color.Gray,
-                Color.DarkGray,
-                Color.Black,
-            ) // List of color options
+        ColorSelectionDialog(currentColor = selectedColor, onSelect = { color ->
+            selectedColor = color
+            changePenColor(color) // Change pen color for all pens
+            isColorSelectionDialogOpen = false
+        }, onClose = { isColorSelectionDialogOpen = false }, options = listOf(
+            Color.Red,
+            Color.Green,
+            Color.Blue,
+            Color.Cyan,
+            Color.Magenta,
+            Color.Yellow,
+            Color.Gray,
+            Color.DarkGray,
+            Color.Black,
+        ) // List of color options
         )
     }
 
@@ -205,8 +200,7 @@ fun Toolbar(
                         .background(Color.Black)
                 )
 
-                PenToolbarButton(
-                    onStrokeMenuOpenChange = { state.isDrawing = !it },
+                PenToolbarButton(onStrokeMenuOpenChange = { state.isDrawing = !it },
                     pen = Pen.BALLPEN,
                     icon = R.drawable.ballpen,
                     isSelected = isSelected(state, Pen.BALLPEN),
@@ -295,8 +289,7 @@ fun Toolbar(
                         .background(Color.Black)
                 )
 
-                PenToolbarButton(
-                    onStrokeMenuOpenChange = { state.isDrawing = !it },
+                PenToolbarButton(onStrokeMenuOpenChange = { state.isDrawing = !it },
                     pen = Pen.MARKER,
                     icon = R.drawable.marker,
                     isSelected = isSelected(state, Pen.MARKER),
@@ -316,8 +309,7 @@ fun Toolbar(
                         .width(0.5.dp)
                         .background(Color.Black)
                 )
-                EraserToolbarButton(
-                    isSelected = state.mode == Mode.Erase,
+                EraserToolbarButton(isSelected = state.mode == Mode.Erase,
                     onSelect = {
                         handleEraser()
                     },
@@ -343,22 +335,18 @@ fun Toolbar(
                         .background(Color.Black)
                 )
 
-                ToolbarButton(
-                    iconId = R.drawable.palette,
+                ToolbarButton(iconId = R.drawable.palette,
                     contentDescription = "palette",
                     onSelect = {
                         isColorSelectionDialogOpen = true // Open the color selection dialog
-                    }
-                )
-                ToolbarButton(
-                    iconId = R.drawable.image,
+                    })
+                ToolbarButton(iconId = R.drawable.image,
                     contentDescription = "library",
                     onSelect = {
                         // Call insertImage when the button is tapped
                         Log.i("InsertImage", "Launching image picker...")
                         pickMedia.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
-                    }
-                )
+                    })
                 Box(
                     Modifier
                         .fillMaxHeight()
@@ -381,9 +369,7 @@ fun Toolbar(
                             History.moveHistory(UndoRedoType.Undo)
                             DrawCanvas.refreshUi.emit(Unit)
                         }
-                    },
-                    iconId = R.drawable.undo,
-                    contentDescription = "undo"
+                    }, iconId = R.drawable.undo, contentDescription = "undo"
                 )
 
                 ToolbarButton(
@@ -392,9 +378,32 @@ fun Toolbar(
                             History.moveHistory(UndoRedoType.Redo)
                             DrawCanvas.refreshUi.emit(Unit)
                         }
-                    },
-                    iconId = R.drawable.redo,
-                    contentDescription = "redo"
+                    }, iconId = R.drawable.redo, contentDescription = "redo"
+                )
+
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .width(0.5.dp)
+                        .background(Color.Black)
+                )
+
+                ToolbarButton(
+                    onSelect = {
+                        scope.launch {
+                            TextRecognizer.recognizeText(scope = scope,
+                                pageView = state.pageView,
+                                onStart = {
+                                    DrawCanvas.startLoading.emit(Unit)
+                                },
+                                onComplete = {
+                                    DrawCanvas.stopLoading.emit(Unit)
+                                },
+                                onTextRecognized = { text ->
+                                    DrawCanvas.drawText.emit(text)
+                                })
+                        }
+                    }, iconId = R.drawable.send, contentDescription = "Recognize text"
                 )
 
                 Box(
@@ -434,13 +443,10 @@ fun Toolbar(
                     )
                 }
                 // Add Library Button
-                ToolbarButton(
-                    iconId = R.drawable.home, // Replace with your library icon resource
-                    contentDescription = "library",
-                    onSelect = {
+                ToolbarButton(iconId = R.drawable.home, // Replace with your library icon resource
+                    contentDescription = "library", onSelect = {
                         navController.navigate("library") // Navigate to main library
-                    }
-                )
+                    })
                 Box(
                     Modifier
                         .fillMaxHeight()
@@ -477,7 +483,43 @@ fun Toolbar(
                 )
             } else null,
             contentDescription = "open toolbar",
+            modifier = Modifier.height(37.dp))
+
+
+        Row(
             modifier = Modifier.height(37.dp)
-        )
+        ) {
+            ToolbarButton(onSelect = { state.isToolbarOpen = true },
+                iconId = presentlyUsedToolIcon(state.mode, state.pen),
+                penColor = if (state.mode != Mode.Erase) state.penSettings[state.pen.penName]?.color?.let {
+                    Color(
+                        it
+                    )
+                } else null,
+                contentDescription = "open toolbar")
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .width(0.5.dp)
+                    .background(Color.Black)
+            )
+            ToolbarButton(
+                onSelect = {
+                    scope.launch {
+                        TextRecognizer.recognizeText(scope = scope,
+                            pageView = state.pageView,
+                            onStart = {
+                                DrawCanvas.startLoading.emit(Unit)
+                            },
+                            onComplete = {
+                                DrawCanvas.stopLoading.emit(Unit)
+                            },
+                            onTextRecognized = { text ->
+                                DrawCanvas.drawText.emit(text)
+                            })
+                    }
+                }, iconId = R.drawable.send, contentDescription = "Send to AI"
+            )
+        }
     }
 }

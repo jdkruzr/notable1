@@ -263,19 +263,23 @@ class PageView(
         ignoredImageIds: List<String> = listOf(),
         canvas: Canvas? = null
     ) {
+        // Determine which canvas to use (either the provided one or the default windowedCanvas)
         val activeCanvas = canvas ?: windowedCanvas
+        // adjust the area to account for the current scroll position
         val pageArea = Rect(
             area.left,
             area.top + scroll,
             area.right,
             area.bottom + scroll
         )
-
+        // save the current state of the canvas
         activeCanvas.save()
+        // clip the canvas to the specified area to ensure drawing is confined within it
         activeCanvas.clipRect(area)
+        // clear the area with a black color
         activeCanvas.drawColor(Color.BLACK)
 
-
+        // measure the time taken to draw the background
         val timeToDraw = measureTimeMillis {
             drawBg(activeCanvas, pageFromDb?.nativeTemplate ?: "blank", scroll)
             // Draw the gray edge of the rectangle
@@ -298,11 +302,13 @@ class PageView(
                 }
 
                 strokes.forEach { stroke ->
+                    // skips the strokes that are in the ignored list
                     if (ignoredStrokeIds.contains(stroke.id)) return@forEach
+                    // get the bounds of the stroke
                     val bounds = strokeBounds(stroke)
-                    // if stroke is not inside page section
+                    // check if the stroke intersects with the area being drawn
                     if (!bounds.toRect().intersect(pageArea)) return@forEach
-
+                    // draw the stroke on the canvas, adjusting for the scroll position
                     drawStroke(
                         activeCanvas, stroke, IntOffset(0, -scroll)
                     )
@@ -312,6 +318,7 @@ class PageView(
             }
 
         }
+
         Log.i(TAG, "Drew area in ${timeToDraw}ms")
         activeCanvas.restore()
     }
@@ -379,5 +386,19 @@ class PageView(
             pageFromDb = AppRepository(context).pageRepository.getById(id)
         }
     }
-}
 
+    fun clear() {
+        // Remove all strokes
+        val strokeIds = strokes.map { it.id }
+        removeStrokes(strokeIds)
+
+        // Clear the canvas
+        windowedCanvas.drawColor(Color.WHITE)
+        drawBg(windowedCanvas, pageFromDb?.nativeTemplate ?: "blank", scroll)
+
+        // Force refresh
+        drawArea(Rect(0, 0, windowedCanvas.width, windowedCanvas.height))
+        persistBitmapDebounced()
+    }
+
+}
