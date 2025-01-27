@@ -242,7 +242,7 @@ fun Toolbar(
                         }
                     },
                     iconId = R.drawable.send,
-                    contentDescription = "Recognize text"
+                    contentDescription = "Send to AI"
                 )
 
                 Box(

@@ -120,7 +120,8 @@ class LambdaService(private val context: android.content.Context) {
         }
 
         val jsonResponse = JSONObject(responseText)
-
+        Log.d(TAG, "Endpoint: $endpoint")
+        Log.d(TAG, "Raw response structure: ${jsonResponse.toString(2)}")
 
         if (jsonResponse.has("error")) {
             val error = jsonResponse.getJSONObject("error")
@@ -131,12 +132,12 @@ class LambdaService(private val context: android.content.Context) {
         if (choices != null && choices.length() > 0) {
             val firstChoice = choices.getJSONObject(0)
             val message = firstChoice.optJSONObject("message")
+            Log.d(TAG, "message: $message")
             if (message != null) {
                 // Handle both standard content and potential refusal field
-                val content = message.optString("content", "No content in response")
+                val content = message.optString("content")
                 Log.d(TAG, "content: $content")
-                val refusal = message.optString("refusal", "")
-                return if (refusal.isNotEmpty()) refusal else content
+                return content
             }
         }
 
