@@ -33,9 +33,8 @@
 </div>
 
 
-Notable is a **custom note-taking app designed specifically for BOOX e-ink devices.** It offers a clean, minimalist design, with a range of special features and optimizations to enhance the note-taking experience.
+Notable Plus is a **custom note-taking app designed specifically for BOOX e-ink devices.** built on [the original noteable source code] (https://github.com/olup/notable) and [the original Notable app](https://github.com/olup/notable/releases/latest).
 
-*⚠️ This is alpha software with a couple of part time individuals pushing it further. We try to make it as stable as possible and to support a smooth update experience, but be prepared for the occasionnal bug and possible breaking changes.*
 
 ## Features
 * ⚡ **Fast Page Turn with Caching:** Notable leverages caching techniques to ensure smooth and swift page transitions, allowing you to navigate through your notes seamlessly.
@@ -43,6 +42,9 @@ Notable is a **custom note-taking app designed specifically for BOOX e-ink devic
 * 📝 **Quick Pages:** Quickly create a new page using the Quick Pages feature.
 * 📒 **Notebooks:** Keep related notes together and easily switch between different notebooks based on your needs.
 * 📁 **Folders:** Create folders to organize your notes.
+* 🤖 **AI Integration:** Chat with your locally hosted LLMs directly on your e-ink device for enhanced note-taking and analysis.
+* 📅 **Calendar Integration:** Effortlessly create appointments by writing down dates and times in your notes.
+* 🔄 **Obsidian Integration:** Capture spontaneous notes and let AI automatically organize them within your Obsidian vault.
 * 🤏 **Editors' Mode Gestures:** [Intuitive gesture controls](#gestures) to enhance the editing experience.
 
 ## Download
@@ -82,4 +84,4 @@ To start working with the project, see [the guide on how to start contributing](
 
 ***Important:*** Be sure to edit the `DEBUG_STORE_FILE` variable in the `/app/gradle.properties` file to the keystore on your own device. This is likely stored in the `.android` directory on your device.
 
-***Important:*** To use your BOOX device for debugging, an application will be required to enable developer mode on your BOOX device. [See a short guide here.](https://imgur.com/a/i1kb2UQ)  
+***Important:*** To use your BOOX device for debugging, an application will be required to enable developer mode on your BOOX device. [See a short guide here.](https://imgur.com/a/i1kb2UQ)
