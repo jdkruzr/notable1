@@ -96,13 +96,11 @@ fun drawLinedBg(canvas: Canvas, scroll: Int) {
     // white bg
     canvas.drawColor(Color.WHITE)
 
-    // paint
     val paint = Paint().apply {
         this.color = Color.GRAY
         this.strokeWidth = 1f
     }
 
-    // lines
     for (y in 0..height) {
         val line = scroll + y
         if (line % lineHeight == 0) {

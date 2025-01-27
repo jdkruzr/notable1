@@ -28,10 +28,10 @@ class TextRecognizer {
                 val inkBuilder = Ink.builder()
                 
                 // Ensure strokes are added in left-to-right order
-                val sortedStrokes = pageView.strokes.sortedBy { it.left }
-                Log.i(TAG, "Sorted strokes count: ${sortedStrokes.size}")
+                // val sortedStrokes = pageView.strokes.sortedBy { it.left }
+                // Log.i(TAG, "Sorted strokes count: ${sortedStrokes.size}")
                 
-                sortedStrokes.forEach { stroke ->
+                pageView.strokes.forEach { stroke ->
                     val strokeBuilder = Ink.Stroke.builder()
                     Log.i(TAG, "Points in stroke: ${stroke.points.size}")
                     stroke.points.forEach { point ->
@@ -55,7 +55,7 @@ class TextRecognizer {
                 
                 // Calculate writing area dimensions
                 val pageWidth = pageView.computeWidth().toFloat()
-                val estimatedLineHeight = 100f
+                val estimatedLineHeight = 50f
                 Log.i(TAG, "Writing area: width=$pageWidth, height=$estimatedLineHeight")
                 
                 // Create recognition context

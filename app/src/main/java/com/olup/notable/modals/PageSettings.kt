@@ -12,6 +12,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.olup.notable.components.SelectMenu
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.clickable
 
 @Composable
 fun PageSettingsModal(pageView: PageView, onClose: () -> Unit) {
@@ -25,6 +27,10 @@ fun PageSettingsModal(pageView: PageView, onClose: () -> Unit) {
                 .background(Color.White)
                 .fillMaxWidth()
                 .border(2.dp, Color.Black, RectangleShape)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { }
         ) {
             Column(
                 Modifier.padding(20.dp, 10.dp)

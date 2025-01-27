@@ -186,7 +186,6 @@ class DrawCanvas(
     }
 
     fun registerObservers() {
-
         // observe forceUpdate
         coroutineScope.launch {
             forceUpdate.collect { zoneAffected ->
@@ -387,8 +386,8 @@ class DrawCanvas(
     fun updateActiveSurface() {
         Log.i(TAG, "Update editable surface")
 
-        val exclusionHeight =
-            if (state.isToolbarOpen) convertDpToPixel(40.dp, context).toInt() else 0
+        //even if toolbar is not open, still exclude
+        val exclusionHeight = convertDpToPixel(40.dp, context).toInt()
 
         touchHelper.setRawDrawingEnabled(false)
         touchHelper.closeRawDrawing()
@@ -427,7 +426,7 @@ class DrawCanvas(
         }
 
         val maxWidth = canvas.width - 80f // More padding for better readability
-        var absoluteY = 60f // This is the absolute position before scroll
+        var absoluteY = convertDpToPixel(50.dp, context) // This is the absolute position before scroll
         val lineHeight = paint.fontSpacing
         val messageSpacing = lineHeight * 0.5f // Space between messages
         val visibleRect = Rect(0, page.scroll, canvas.width, page.scroll + canvas.height)
