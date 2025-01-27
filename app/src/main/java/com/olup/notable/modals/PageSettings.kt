@@ -27,10 +27,6 @@ fun PageSettingsModal(pageView: PageView, onClose: () -> Unit) {
                 .background(Color.White)
                 .fillMaxWidth()
                 .border(2.dp, Color.Black, RectangleShape)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { }
         ) {
             Column(
                 Modifier.padding(20.dp, 10.dp)
@@ -62,8 +58,7 @@ fun PageSettingsModal(pageView: PageView, onClose: () -> Unit) {
                         onChange = {
                             val updatedPage = pageView.pageFromDb!!.copy(nativeTemplate = it)
                             pageView.updatePageSettings(updatedPage)
-                            scope.launch {  DrawCanvas.refreshUi.emit(Unit) }
-                            pageTemplate = pageView.pageFromDb!!.nativeTemplate
+                            pageTemplate = it
                         },
                         value = pageTemplate
                     )

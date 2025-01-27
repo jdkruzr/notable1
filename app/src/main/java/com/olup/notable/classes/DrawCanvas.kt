@@ -2,7 +2,13 @@ package com.olup.notable
 
 import android.content.Context
 import android.graphics.*
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import io.shipbook.shipbooksdk.Log
+import io.noties.markwon.Markwon
+import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.html.HtmlPlugin
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.runtime.snapshotFlow
@@ -413,6 +419,13 @@ class DrawCanvas(
         refreshUi()
     }
 
+    private val markwon by lazy {
+        Markwon.builder(_context)
+            .usePlugin(TablePlugin.create(_context))
+            .usePlugin(HtmlPlugin.create())
+            .build()
+    }
+
     private fun renderText(canvas: Canvas) {
         val messages = AppDatabase.getDatabase(_context).chatMessageDao().getMessagesForPage(page.id)
         if (messages.isEmpty()) return
@@ -425,56 +438,47 @@ class DrawCanvas(
             alpha = 255
         }
 
-        val maxWidth = canvas.width - 80f // More padding for better readability
-        var absoluteY = convertDpToPixel(50.dp, context) // This is the absolute position before scroll
+        val maxWidth = canvas.width - 80f
+        var absoluteY = convertDpToPixel(60.dp, context)
         val lineHeight = paint.fontSpacing
-        val messageSpacing = lineHeight * 0.5f // Space between messages
+        val messageSpacing = lineHeight * 0.5f
         val visibleRect = Rect(0, page.scroll, canvas.width, page.scroll + canvas.height)
 
         messages.forEach { message ->
-            // Skip system messages
             if (message.role == "system") return@forEach
 
-            // Format message with role prefix
             val prefix = if (message.role == "assistant") "Assistant: " else "You: "
-            val fullText = prefix + message.content
-
-            // Calculate line breaks for this message
-            val lines = ArrayList<String>()
-            var currentLine = ""
             
-            fullText.split(" ").forEach { word ->
-                val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
-                val measureWidth = paint.measureText(testLine)
-                
-                if (measureWidth > maxWidth) {
-                    lines.add(currentLine)
-                    currentLine = word
-                } else {
-                    currentLine = testLine
-                }
-            }
-            if (currentLine.isNotEmpty()) {
-                lines.add(currentLine)
+            // Create a layout for the text
+            val layout = if (message.role == "assistant") {
+                // For assistant messages, use Markwon to create a layout
+                val spannedText = markwon.toMarkdown(prefix + message.content)
+                StaticLayout.Builder.obtain(spannedText, 0, spannedText.length, TextPaint(paint), maxWidth.toInt())
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(0f, 1f)
+                    .setIncludePad(true)
+                    .build()
+            } else {
+                // For user messages, create a regular layout
+                val text = prefix + message.content
+                StaticLayout.Builder.obtain(text, 0, text.length, TextPaint(paint), maxWidth.toInt())
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(0f, 1f)
+                    .setIncludePad(true)
+                    .build()
             }
 
-            // Calculate message height
-            val messageHeight = (lines.size * lineHeight)
+            val messageHeight = layout.height.toFloat()
             val messageRect = RectF(0f, absoluteY, canvas.width.toFloat(), absoluteY + messageHeight)
 
-            // Only draw if message is visible in current scroll position
-            if (messageRect.intersects(visibleRect.left.toFloat(), visibleRect.top.toFloat(), 
+            if (messageRect.intersects(visibleRect.left.toFloat(), visibleRect.top.toFloat(),
                                     visibleRect.right.toFloat(), visibleRect.bottom.toFloat())) {
-                var currentY = absoluteY
-                // Draw message lines
-                lines.forEach { line ->
-                    val screenY = currentY - page.scroll // Convert absolute position to screen position
-                    canvas.drawText(line, 40f, screenY, paint)
-                    currentY += lineHeight
-                }
+                canvas.save()
+                canvas.translate(40f, absoluteY - page.scroll)
+                layout.draw(canvas)
+                canvas.restore()
             }
 
-            // Always increment absolute position by full message height
             absoluteY += messageHeight + messageSpacing
         }
     }
