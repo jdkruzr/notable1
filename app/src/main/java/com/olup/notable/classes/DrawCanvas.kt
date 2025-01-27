@@ -318,7 +318,7 @@ class DrawCanvas(
     }
 
     fun refreshUi() {
-        Log.i(TAG, "Refreshing ui. isDrawing : ${state.isDrawing}")
+//        Log.i(TAG, "Refreshing ui. isDrawing : ${state.isDrawing}")
         drawCanvasToView()
 
         if (state.isDrawing) {
@@ -329,7 +329,7 @@ class DrawCanvas(
     }
 
     fun drawCanvasToView() {
-        Log.i(TAG, "Draw canvas")
+//        Log.i(TAG, "Draw canvas")
         val canvas = this.holder.lockCanvas() ?: return
         canvas.drawBitmap(page.windowedBitmap, 0f, 0f, Paint());
 

@@ -5,7 +5,6 @@ import org.json.JSONObject
 
 class ChatMessageRepository(context: Context) {
     private val db = AppDatabase.getDatabase(context).chatMessageDao()
-    private val MAX_MESSAGES = 8
 
     fun initializeSystemMessage(pageId: String) {
         val systemMessage = ChatMessage(
@@ -30,7 +29,7 @@ class ChatMessageRepository(context: Context) {
             content = content,
             order = order
         )
-        db.addMessageWithLimit(message, MAX_MESSAGES)
+        db.create(message)
     }
 
     fun getMessagesAsJson(pageId: String): List<JSONObject> {

@@ -18,15 +18,28 @@ class LambdaService(private val context: android.content.Context) {
     }
 
     private val chatRepository: ChatMessageRepository
+    private val MAX_LLM_MESSAGES = 16
 
     init {
         chatRepository = ChatMessageRepository(context)
     }
 
+    private fun filterRecentMessages(messages: List<JSONObject>): List<JSONObject> {
+        // Keep system message if it exists (it should be the first message)
+        val systemMessage = messages.firstOrNull { it.getString("role") == "system" }
+        
+        // Get last 10 user and assistant messages
+        val userAssistantMessages = messages
+            .filter { it.getString("role") in listOf("user", "assistant") }
+            .takeLast(MAX_LLM_MESSAGES)
+
+        // Return system message (if exists) followed by filtered messages
+        return systemMessage?.let { listOf(it) + userAssistantMessages } ?: userAssistantMessages
+    }
+
     private suspend fun makeApiRequest(endpoint: String, pageId: String, messages: List<JSONObject>): String {
         val url = URL(endpoint)
         val connection = url.openConnection() as HttpURLConnection
-        Log.d(TAG, "url: $url")
         connection.requestMethod = "POST"
         connection.setRequestProperty("Content-Type", "application/json")
         
@@ -107,7 +120,7 @@ class LambdaService(private val context: android.content.Context) {
         }
 
         val jsonResponse = JSONObject(responseText)
-        Log.d(TAG, "Parsed response: $jsonResponse")
+
 
         if (jsonResponse.has("error")) {
             val error = jsonResponse.getJSONObject("error")
@@ -120,9 +133,10 @@ class LambdaService(private val context: android.content.Context) {
             val message = firstChoice.optJSONObject("message")
             if (message != null) {
                 // Handle both standard content and potential refusal field
-                val content = message.optString("content")
-                val refusal = message.optString("refusal")
-                return if (refusal.isNotEmpty()) refusal else content.ifEmpty { "No content in response" }
+                val content = message.optString("content", "No content in response")
+                Log.d(TAG, "content: $content")
+                val refusal = message.optString("refusal", "")
+                return if (refusal.isNotEmpty()) refusal else content
             }
         }
 
@@ -137,12 +151,13 @@ class LambdaService(private val context: android.content.Context) {
             // Add user message
             chatRepository.addMessage(pageId, "user", prompt)
 
-            // Get all messages for the request
-            val messages = chatRepository.getMessagesAsJson(pageId)
+            // Get messages and filter to last 10 user/assistant messages
+            val allMessages = chatRepository.getMessagesAsJson(pageId)
+            val filteredMessages = filterRecentMessages(allMessages)
 
             // Try primary endpoint first
             try {
-                val response = makeApiRequest(API_ENDPOINT, pageId, messages)
+                val response = makeApiRequest(API_ENDPOINT, pageId, filteredMessages)
                 chatRepository.addMessage(pageId, "assistant", response)
                 return@withContext response
             } catch (e: Exception) {
@@ -150,9 +165,9 @@ class LambdaService(private val context: android.content.Context) {
                 
                 // Try backup endpoint
                 try {
-                    val response = makeApiRequest(BACKUP_API_ENDPOINT, pageId, messages)
-                    chatRepository.addMessage(pageId, "assistant", response)
-                    return@withContext response
+                    val response = makeApiRequest(BACKUP_API_ENDPOINT, pageId, filteredMessages)
+                        chatRepository.addMessage(pageId, "assistant", response)
+                        return@withContext response
                 } catch (e2: Exception) {
                     Log.e(TAG, "Backup endpoint also failed", e2)
                     return@withContext "Error: Both endpoints failed - ${e2.message}"
