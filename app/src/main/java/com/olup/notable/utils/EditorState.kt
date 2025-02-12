@@ -23,10 +23,8 @@ class EditorState(val bookId: String? = null, val pageId: String, val pageView: 
     var isDrawing by mutableStateOf(true)
     var isToolbarOpen by mutableStateOf(
         persistedEditorSettings?.isToolbarOpen ?: false
-    ) // should save
-    var isCalendarMode by mutableStateOf(
-        persistedEditorSettings?.isCalendarMode ?: false
-    ) // should save
+    )
+    // should save
     var penSettings by mutableStateOf<NamedSettings>(
         persistedEditorSettings?.penSettings ?: mapOf<String, PenSetting>(
             Pen.BALLPEN.penName to PenSetting(5f, Color.BLACK),
