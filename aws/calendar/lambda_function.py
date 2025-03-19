@@ -1,13 +1,23 @@
 import json
 import os
 import boto3
+import uuid
 import requests
 from datetime import datetime
 
 def lambda_handler(event, context):
+    # Initialize DynamoDB client
+    dynamodb = boto3.resource('dynamodb')
+    table = dynamodb.Table('CalendarEvents')
     try:
         # Extract user text from the event
         user_text = event.get('text', '')
+
+        # Generate a unique event ID
+        event_id = str(uuid.uuid4())
+        
+        # Get user ID from the event or use a default
+        user_id = event.get('userId', 'anonymous')
         
         if not user_text:
             return {
@@ -15,8 +25,14 @@ def lambda_handler(event, context):
                 'body': json.dumps({'error': 'No text provided'})
             }
         
+        # Record the timestamp when the request was received
+        request_time = datetime.utcnow().isoformat()
+        
         # Get calendar event from LLM
         calendar_event = extract_calendar_event(user_text)
+        
+        # Save both input and output to DynamoDB
+        save_to_dynamodb(table, user_id, event_id, user_text, calendar_event, request_time)
         
         return {
             'statusCode': 200,
@@ -28,6 +44,32 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'body': json.dumps({'error': str(e)})
         }
+
+def save_to_dynamodb(table, user_id, event_id, input_text, calendar_event, request_time):
+    """Save the input and output to DynamoDB"""
+    
+    # Extract start_time for the GSI
+    start_time = calendar_event.get('start_time', '')
+    
+    # Create the item to store
+    item = {
+        'UserId': user_id,
+        'EventId': event_id,
+        'InputText': input_text,
+        'CalendarEvent': calendar_event,
+        'RequestTime': request_time,
+        'StartTime': start_time
+    }
+    
+    # Add optional fields if they exist
+    for optional_field in ['title', 'end_time', 'location', 'description', 'attendees']:
+        if optional_field in calendar_event and calendar_event[optional_field]:
+            item[optional_field] = calendar_event[optional_field]
+    
+    # Put the item into DynamoDB
+    table.put_item(Item=item)
+    
+    return True
 
 def extract_calendar_event(text):
     # Define which LLM service to use
@@ -42,10 +84,17 @@ def extract_calendar_event(text):
 
 
 def extract_with_openai(text):
-    import openai
+    import json
+    import requests
+    from datetime import datetime
     
-    # Set your OpenAI API key from environment variable
-    openai.api_key = os.environ.get('OPENAI_API_KEY')
+    # Get OpenAI API key from environment variables
+    api_key = os.environ.get('OPENAI_API_KEY')
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY environment variable not set")
+    
+    # Get model from environment variables or use default
+    model = os.environ.get('OPENAI_MODEL', 'gpt-4')
     
     # Define the system message to explain the task
     system_message = """
@@ -60,31 +109,53 @@ def extract_with_openai(text):
     If any information is missing, make a reasonable assumption based on context or leave as null.
     """
     
-    response = openai.ChatCompletion.create(
-        model="gpt-4o-mini-2024-07-18" if os.environ.get('OPENAI_MODEL') is None else os.environ.get('OPENAI_MODEL'),
-        messages=[
+    # Prepare the request
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    
+    payload = {
+        "model": model,
+        "messages": [
             {"role": "system", "content": system_message},
             {"role": "user", "content": text}
         ],
-        temperature=0.1,  # Low temperature for more deterministic output
-    )
+        "temperature": 0.1,  # Low temperature for more deterministic output
+    }
     
-    # Extract the generated calendar event
-    result = response.choices[0].message.content
+    # Use a session to reuse connection resources
+    with requests.Session() as session:
+        # Make the API call to OpenAI
+        response = session.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=25  # Set a timeout to avoid Lambda waiting too long
+        )
     
-    # Convert string to JSON if needed
-    if isinstance(result, str):
-        try:
-            result = json.loads(result)
-        except json.JSONDecodeError:
-            # If the response is not valid JSON, extract JSON portion
-            import re
-            json_match = re.search(r'(\{.*\})', result, re.DOTALL)
-            if json_match:
-                try:
-                    result = json.loads(json_match.group(1))
-                except:
-                    pass
+    # Check for successful response
+    if response.status_code != 200:
+        raise ValueError(f"Error from OpenAI API: {response.text}")
+    
+    # Parse response
+    response_data = response.json()
+    result_text = response_data['choices'][0]['message']['content']
+    
+    # Convert string to JSON
+    try:
+        result = json.loads(result_text)
+    except json.JSONDecodeError:
+        # If the response is not valid JSON, extract JSON portion
+        import re
+        json_match = re.search(r'(\{.*\})', result_text, re.DOTALL)
+        if json_match:
+            try:
+                result = json.loads(json_match.group(1))
+            except:
+                raise ValueError("Could not parse JSON from response")
+        else:
+            raise ValueError("Response did not contain valid JSON")
     
     # Validate and return the calendar event
     validate_calendar_event(result)

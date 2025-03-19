@@ -2,13 +2,12 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: 'API Gateway integration with CalendarTest Lambda function for calendar event extraction'
 
 Parameters:
-  LambdaFunctionName:
+  LambdaFunctionArn:
     Type: String
-    Default: CalendarTest
-    Description: Name of the existing Lambda function
+    Description: ARN of the existing Lambda function
   StageName:
     Type: String
-    Default: prod
+    Default: test-stage
     Description: API Gateway deployment stage name
 
 Resources:
@@ -41,7 +40,7 @@ Resources:
       Integration:
         Type: AWS
         IntegrationHttpMethod: POST
-        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionName.Arn}/invocations
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionArn}/invocations"
         IntegrationResponses:
           - StatusCode: 200
             ResponseTemplates:
@@ -50,26 +49,30 @@ Resources:
         RequestTemplates:
           application/json: |
             {
-              "text": $input.json('$.text')
+              "text": $input.json('$.text'),
+              "userId": $input.json('$.userId')
             }
       MethodResponses:
         - StatusCode: 200
           ResponseModels:
             application/json: "Empty"
 
-  # API Gateway Deployment
+  # Lambda Permission
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref LambdaFunctionArn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${CalendarEventAPI}/*/POST/calendar-event"
+
+  # API Deployment
   ApiDeployment:
     Type: AWS::ApiGateway::Deployment
-    DependsOn: CalendarEventMethod
+    DependsOn: 
+      - CalendarEventMethod
+      - LambdaInvokePermission
     Properties:
-      RestApiId: !Ref CalendarEventAPI
-      StageName: !Ref StageName
-
-  # API Gateway Stage
-  ApiStage:
-    Type: AWS::ApiGateway::Stage
-    Properties:
-      DeploymentId: !Ref ApiDeployment
       RestApiId: !Ref CalendarEventAPI
       StageName: !Ref StageName
 
@@ -102,15 +105,6 @@ Resources:
             application/json: 'Empty'
       ResourceId: !Ref CalendarEventResource
       RestApiId: !Ref CalendarEventAPI
-
-  # Lambda Permission - Allow API Gateway to invoke Lambda
-  LambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref LambdaFunctionName
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${CalendarEventAPI}/*
 
 Outputs:
   ApiURL:
