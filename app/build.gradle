@@ -151,6 +151,10 @@ dependencies {
 
     implementation 'io.shipbook:shipbooksdk:1.+'
 
+    // markdown
+    implementation "io.noties.markwon:core:4.6.2"
+    implementation "io.noties.markwon:ext-tables:4.6.2"  // Optional for tables
+    implementation "io.noties.markwon:html:4.6.2"        // Optional for HTML
 
 }
 

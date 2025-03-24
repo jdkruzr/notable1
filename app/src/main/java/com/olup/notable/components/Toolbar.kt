@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.olup.notable.R
 import io.shipbook.shipbooksdk.Log
 import kotlinx.coroutines.launch
 
@@ -403,7 +404,9 @@ fun Toolbar(
                                     DrawCanvas.drawText.emit(text)
                                 })
                         }
-                    }, iconId = R.drawable.send, contentDescription = "Recognize text"
+                    },
+                    iconId = R.drawable.send,
+                    contentDescription = "Send to AI"
                 )
 
                 Box(

@@ -8,7 +8,7 @@ Target Android SDK is 33
 - **MainActivity.kt**: Main entry point for the Android application
 - **NotableApp.kt**: Application class that initializes core components
 - **EditorControlTower.kt**: Manages editor state and interactions
-- **LambdaService.kt**: Handles AWS Lambda service integration
+- **LambdaService.kt**: Handles AWS API Gateway service integration
 - **SnackBar.kt**: Manages snackbar notifications
 - **PageView.kt**: Handles page content rendering, stroke management, scroll position, and caching of page previews
 - **DrawCanvas.kt**: Manages the drawing surface, handles touch input, and coordinates drawing tool operations (pen, eraser, select)
@@ -37,6 +37,7 @@ Target Android SDK is 33
 - **pen.kt**: Pen tool implementation
 - **utils.kt**: General utility functions
 - **versionChecker.kt**: Version checking utilities
+- **TextRecognizer.kt**: Handwriting recognition utils
 
 ## Theme & UI
 - **Color.kt**: Color theme definitions

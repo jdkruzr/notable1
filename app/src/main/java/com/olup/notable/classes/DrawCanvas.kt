@@ -1,6 +1,13 @@
 package com.olup.notable
 
 import android.content.Context
+import android.graphics.*
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
+import io.noties.markwon.Markwon
+import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.html.HtmlPlugin
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -229,7 +236,6 @@ class DrawCanvas(
     }
 
     fun registerObservers() {
-
         // observe forceUpdate
         coroutineScope.launch {
             forceUpdate.collect { zoneAffected ->
@@ -421,7 +427,7 @@ class DrawCanvas(
     }
 
     fun refreshUi() {
-        Log.i(TAG, "Refreshing ui. isDrawing : ${state.isDrawing}")
+//        Log.i(TAG, "Refreshing ui. isDrawing : ${state.isDrawing}")
         drawCanvasToView()
 
         if (state.isDrawing) {
@@ -469,6 +475,7 @@ class DrawCanvas(
 
 
     fun drawCanvasToView() {
+//        Log.i(TAG, "Draw canvas")
         val canvas = this.holder.lockCanvas() ?: return
         canvas.drawBitmap(page.windowedBitmap, 0f, 0f, Paint())
         val timeToDraw = measureTimeMillis {
@@ -538,8 +545,8 @@ class DrawCanvas(
     fun updateActiveSurface() {
         Log.i(TAG, "Update editable surface")
 
-        val exclusionHeight =
-            if (state.isToolbarOpen) convertDpToPixel(40.dp, context).toInt() else 0
+        //even if toolbar is not open, still exclude
+        val exclusionHeight = convertDpToPixel(40.dp, context).toInt()
 
         touchHelper.setRawDrawingEnabled(false)
         touchHelper.closeRawDrawing()
@@ -565,6 +572,13 @@ class DrawCanvas(
         refreshUi()
     }
 
+    private val markwon by lazy {
+        Markwon.builder(_context)
+            .usePlugin(TablePlugin.create(_context))
+            .usePlugin(HtmlPlugin.create())
+            .build()
+    }
+
     private fun renderText(canvas: Canvas) {
         val messages = AppDatabase.getDatabase(context).chatMessageDao().getMessagesForPage(page.id)
         if (messages.isEmpty()) return
@@ -577,56 +591,47 @@ class DrawCanvas(
             alpha = 255
         }
 
-        val maxWidth = canvas.width - 80f // More padding for better readability
-        var absoluteY = 60f // This is the absolute position before scroll
+        val maxWidth = canvas.width - 80f
+        var absoluteY = convertDpToPixel(60.dp, context)
         val lineHeight = paint.fontSpacing
-        val messageSpacing = lineHeight * 0.5f // Space between messages
+        val messageSpacing = lineHeight * 0.5f
         val visibleRect = Rect(0, page.scroll, canvas.width, page.scroll + canvas.height)
 
         messages.forEach { message ->
-            // Skip system messages
             if (message.role == "system") return@forEach
 
-            // Format message with role prefix
             val prefix = if (message.role == "assistant") "Assistant: " else "You: "
-            val fullText = prefix + message.content
 
-            // Calculate line breaks for this message
-            val lines = ArrayList<String>()
-            var currentLine = ""
-
-            fullText.split(" ").forEach { word ->
-                val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
-                val measureWidth = paint.measureText(testLine)
-
-                if (measureWidth > maxWidth) {
-                    lines.add(currentLine)
-                    currentLine = word
-                } else {
-                    currentLine = testLine
-                }
+            // Create a layout for the text
+            val layout = if (message.role == "assistant") {
+                // For assistant messages, use Markwon to create a layout
+                val spannedText = markwon.toMarkdown(prefix + message.content)
+                StaticLayout.Builder.obtain(spannedText, 0, spannedText.length, TextPaint(paint), maxWidth.toInt())
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(0f, 1f)
+                    .setIncludePad(true)
+                    .build()
+            } else {
+                // For user messages, create a regular layout
+                val text = prefix + message.content
+                StaticLayout.Builder.obtain(text, 0, text.length, TextPaint(paint), maxWidth.toInt())
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(0f, 1f)
+                    .setIncludePad(true)
+                    .build()
             }
-            if (currentLine.isNotEmpty()) {
-                lines.add(currentLine)
-            }
 
-            // Calculate message height
-            val messageHeight = (lines.size * lineHeight)
+            val messageHeight = layout.height.toFloat()
             val messageRect = RectF(0f, absoluteY, canvas.width.toFloat(), absoluteY + messageHeight)
 
-            // Only draw if message is visible in current scroll position
             if (messageRect.intersects(visibleRect.left.toFloat(), visibleRect.top.toFloat(),
                                     visibleRect.right.toFloat(), visibleRect.bottom.toFloat())) {
-                var currentY = absoluteY
-                // Draw message lines
-                lines.forEach { line ->
-                    val screenY = currentY - page.scroll // Convert absolute position to screen position
-                    canvas.drawText(line, 40f, screenY, paint)
-                    currentY += lineHeight
-                }
+                canvas.save()
+                canvas.translate(40f, absoluteY - page.scroll)
+                layout.draw(canvas)
+                canvas.restore()
             }
 
-            // Always increment absolute position by full message height
             absoluteY += messageHeight + messageSpacing
         }
     }
