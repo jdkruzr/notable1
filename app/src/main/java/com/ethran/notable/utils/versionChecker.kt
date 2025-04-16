@@ -3,13 +3,9 @@ package com.ethran.notable.utils
 import android.content.Context
 import android.content.pm.PackageManager
 import com.ethran.notable.BuildConfig
-import com.ethran.notable.classes.SnackConf
-import com.ethran.notable.classes.SnackState
 import com.ethran.notable.TAG
+import com.ethran.notable.classes.showHint
 import io.shipbook.shipbooksdk.Log
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import java.net.URL
 
@@ -77,14 +73,6 @@ fun isLatestVersion(context: Context, force: Boolean = false): Boolean {
         val version = getCurrentVersionName(context)
         val latestVersion = getLatestReleaseVersion("ethran", "notable")
         Log.i(TAG, "Version is $version and latest on repo is $latestVersion")
-        CoroutineScope(Dispatchers.Default).launch {
-            SnackState.globalSnackFlow.emit(
-                SnackConf(
-                    text = "Version is $version and latest on repo is $latestVersion",
-                    duration = 1000,
-                )
-            )
-        }
 
         // If either version is null, we can't compare them
         if (latestVersion == null || version == null) {
@@ -102,7 +90,13 @@ fun isLatestVersion(context: Context, force: Boolean = false): Boolean {
         }
 
         isLatestVersion = versionVersion.compareTo(latestVersionVersion) != -1
-
+        if (!isLatestVersion!!) {
+            showHint(
+                "A newer version is available!\nYou are using version $version, " +
+                        "while the latest version available is $latestVersion.",
+                duration = 5000
+            )
+        }
         return isLatestVersion!!
     } catch (e: Exception) {
         Log.i(TAG, "Failed to fetch latest release version: ${e.message}")

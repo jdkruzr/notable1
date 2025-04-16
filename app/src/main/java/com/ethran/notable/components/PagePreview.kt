@@ -16,13 +16,13 @@ import java.io.File
 @Composable
 fun PagePreview(modifier: Modifier, pageId: String) {
     val context = LocalContext.current
-    val imgFile = remember {
+    val imgFile = remember (pageId){
         File(context.filesDir, "pages/previews/thumbs/$pageId")
     }
 
     var imgBitmap: Bitmap? = null
     if (imgFile.exists()) {
-        imgBitmap = remember {
+        imgBitmap = remember(pageId) {
             BitmapFactory.decodeFile(imgFile.absolutePath)
         }
     }

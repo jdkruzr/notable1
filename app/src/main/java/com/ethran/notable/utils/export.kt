@@ -8,10 +8,10 @@ import android.graphics.Bitmap
 import android.graphics.pdf.PdfDocument
 import android.os.Environment
 import android.provider.MediaStore
-import io.shipbook.shipbooksdk.Log
 import com.ethran.notable.TAG
 import com.ethran.notable.db.BookRepository
 import com.ethran.notable.db.PageRepository
+import io.shipbook.shipbooksdk.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -20,6 +20,7 @@ import java.io.OutputStream
 suspend fun exportBook(context: Context, bookId: String): String {
     val book = BookRepository(context).getById(bookId) ?: return "Book ID not found"
     val pages = PageRepository(context)
+    Log.v(TAG, "Exporting book: " + book.title)
 
     val result = saveFile(context, book.title, "pdf") { outputStream ->
         val document = PdfDocument()

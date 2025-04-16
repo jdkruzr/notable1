@@ -56,7 +56,6 @@ fun Router() {
             route = "library?folderId={folderId}",
             arguments = listOf(navArgument("folderId") { nullable = true }),
         ) {
-            /* Using composable function */
             Library(
                 navController = navController,
                 folderId = it.arguments?.getString("folderId"),

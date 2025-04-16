@@ -80,6 +80,9 @@ class BookRepository(context: Context) {
         db.setPageIds(notebook.id, listOf(page.id))
         db.setOpenPageId(notebook.id, page.id)
     }
+    fun createEmpty(notebook: Notebook) {
+        db.create(notebook)
+    }
 
     fun update(notebook: Notebook) {
         Log.i(TAG, "updating DB")

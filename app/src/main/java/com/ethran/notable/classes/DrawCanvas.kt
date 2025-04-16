@@ -59,7 +59,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.concurrent.thread
-import kotlin.system.measureTimeMillis
 
 
 val pressure = EpdController.getMaxTouchPressure()
@@ -115,7 +114,6 @@ class DrawCanvas(
 
         override fun onRawDrawingTouchPointListReceived(plist: TouchPointList) {
             val startTime = System.currentTimeMillis()
-            Log.d(TAG, "onRawDrawingTouchPointListReceived started")
             // sometimes UI will get refreshed and frozen before we draw all the strokes.
             // I think, its because of doing it in separate thread. Commented it for now, to
             // observe app behavior, and determine if it fixed this bug,
@@ -124,11 +122,8 @@ class DrawCanvas(
             // thread(start = true, isDaemon = false, priority = Thread.MAX_PRIORITY) {
 
             if (getActualState().mode == Mode.Draw) {
-                val newThread = System.currentTimeMillis()
-                Log.d(
-                    TAG,
-                    "Got to new thread ${Thread.currentThread().name}, in ${newThread - startTime}}"
-                )
+//                val newThread = System.currentTimeMillis()
+//                Log.d(TAG,"Got to new thread ${Thread.currentThread().name}, in ${newThread - startTime}}")
                 coroutineScope.launch(Dispatchers.Main.immediate) {
                     // After each stroke ends, we draw it on our canvas.
                     // This way, when screen unfreezes the strokes are shown.
@@ -149,19 +144,16 @@ class DrawCanvas(
                             getActualState().pen,
                             plist.points
                         )
-                        val drawEndTime = System.currentTimeMillis()
-                        Log.d(TAG, "Drawing operation took ${drawEndTime - startTime} ms")
+//                        val drawEndTime = System.currentTimeMillis()
+//                        Log.d(TAG, "Drawing operation took ${drawEndTime - startTime} ms")
 
                     }
                     coroutineScope.launch {
                         commitHistorySignal.emit(Unit)
                     }
 
-                    val endTime = System.currentTimeMillis()
-                    Log.d(
-                        TAG,
-                        "onRawDrawingTouchPointListReceived completed in ${endTime - startTime} ms"
-                    )
+//                    val endTime = System.currentTimeMillis()
+//                    Log.d(TAG,"onRawDrawingTouchPointListReceived completed in ${endTime - startTime} ms")
 
                 }
             } else thread {
@@ -288,7 +280,7 @@ class DrawCanvas(
         // observe forceUpdate
         coroutineScope.launch {
             forceUpdate.collect { zoneAffected ->
-                Log.i(TAG + "Observer", "Force update zone $zoneAffected")
+                Log.v(TAG + "Observer", "Force update zone $zoneAffected")
 
                 if (zoneAffected != null) page.drawArea(
                     area = Rect(
@@ -305,7 +297,7 @@ class DrawCanvas(
         // observe refreshUi
         coroutineScope.launch {
             refreshUi.collect {
-                Log.i(TAG + "Observer", "Refreshing UI!")
+                Log.v(TAG + "Observer", "Refreshing UI!")
                 refreshUiSuspend()
             }
         }
@@ -399,7 +391,7 @@ class DrawCanvas(
             }
         }
         coroutineScope.launch {
-            commitHistorySignalImmediately.collect() {
+            commitHistorySignalImmediately.collect {
                 commitToHistory()
                 commitCompletion.complete(Unit)
             }
@@ -409,7 +401,7 @@ class DrawCanvas(
 
     private suspend fun selectRectangle(rectToSelect: Rect?) {
         if (rectToSelect != null) {
-            Log.i(TAG + "Observer", "position of image $rectToSelect")
+            Log.d(TAG + "Observer", "position of image $rectToSelect")
             rectToSelect.top += page.scroll
             rectToSelect.bottom += page.scroll
             // Query the database to find an image that coincides with the point
@@ -463,7 +455,7 @@ class DrawCanvas(
         // screen won't freeze until you actually stoke
     }
 
-    suspend fun refreshUiSuspend() {
+    private suspend fun refreshUiSuspend() {
         // Do not use, if refresh need to be preformed without delay.
         // This function waits for strokes to be fully rendered.
         if (!state.isDrawing) {
@@ -473,7 +465,7 @@ class DrawCanvas(
             return
         }
         if (Looper.getMainLooper().isCurrentThread) {
-            Log.w(
+            Log.i(
                 TAG,
                 "refreshUiSuspend() is called from the main thread, it might not be a good idea."
             )
@@ -501,14 +493,7 @@ class DrawCanvas(
         // Convert the image to a software-backed bitmap
         val imageBitmap = uriToBitmap(context, imageUri)?.asImageBitmap()
         if (imageBitmap == null)
-            coroutineScope.launch {
-                SnackState.globalSnackFlow.emit(
-                    SnackConf(
-                        text = "There was an error during image processing.",
-                        duration = 3000,
-                    )
-                )
-            }
+            showHint("There was an error during image processing.", coroutineScope)
         val softwareBitmap =
             imageBitmap?.asAndroidBitmap()?.copy(Bitmap.Config.ARGB_8888, true)
         if (softwareBitmap != null) {
@@ -545,21 +530,18 @@ class DrawCanvas(
     fun drawCanvasToView() {
         val canvas = this.holder.lockCanvas() ?: return
         canvas.drawBitmap(page.windowedBitmap, 0f, 0f, Paint())
-        val timeToDraw = measureTimeMillis {
-            if (getActualState().mode == Mode.Select) {
-                // render selection
-                if (getActualState().selectionState.firstPageCut != null) {
-                    Log.i(TAG, "render cut")
-                    val path = pointsToPath(getActualState().selectionState.firstPageCut!!.map {
-                        SimplePointF(
-                            it.x, it.y - page.scroll
-                        )
-                    })
-                    canvas.drawPath(path, selectPaint)
-                }
+        if (getActualState().mode == Mode.Select) {
+            // render selection
+            if (getActualState().selectionState.firstPageCut != null) {
+                Log.i(TAG, "render cut")
+                val path = pointsToPath(getActualState().selectionState.firstPageCut!!.map {
+                    SimplePointF(
+                        it.x, it.y - page.scroll
+                    )
+                })
+                canvas.drawPath(path, selectPaint)
             }
         }
-//        Log.i(TAG, "drawCanvasToView: Took ${timeToDraw}ms.")
         // finish rendering
         this.holder.unlockCanvasAndPost(canvas)
     }

@@ -64,6 +64,10 @@ interface PageDao {
 
     @Transaction
     @Query("SELECT * FROM page WHERE id =:pageId")
+    suspend fun getPageWithStrokesByIdSuspend(pageId: String): PageWithStrokes
+
+    @Transaction
+    @Query("SELECT * FROM page WHERE id =:pageId")
     fun getPageWithImagesById(pageId: String): PageWithImages
 
     @Query("UPDATE page SET scroll=:scroll WHERE id =:pageId")
@@ -99,6 +103,10 @@ class PageRepository(context: Context) {
 
     fun getWithStrokeById(pageId: String): PageWithStrokes {
         return db.getPageWithStrokesById(pageId)
+    }
+
+   suspend fun getWithStrokeByIdSuspend(pageId: String): PageWithStrokes {
+        return db.getPageWithStrokesByIdSuspend(pageId)
     }
 
     fun getWithImageById(pageId: String): PageWithImages {

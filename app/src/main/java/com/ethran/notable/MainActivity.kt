@@ -76,6 +76,8 @@ class MainActivity : ComponentActivity() {
 
         val snackState = SnackState()
         snackState.registerGlobalSnackObserver()
+        snackState.registerCancelGlobalSnackObserver()
+
         // Refactor - we prob don't need this
         EditorSettingCacheManager.init(applicationContext)
 

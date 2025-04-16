@@ -22,6 +22,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.ethran.notable.utils.Eraser
 import com.ethran.notable.R
+import com.ethran.notable.modals.BUTTON_SIZE
 import com.ethran.notable.utils.convertDpToPixel
 
 @Composable
@@ -73,13 +74,13 @@ fun EraserToolbarButton(
                         iconId = R.drawable.eraser,
                         isSelected = value == Eraser.PEN,
                         onSelect = { onChange(Eraser.PEN) },
-                        modifier = Modifier.height(37.dp)
+                        modifier = Modifier.height(BUTTON_SIZE.dp)
                     )
                     ToolbarButton(
                         iconId = R.drawable.eraser_select,
                         isSelected = value == Eraser.SELECT,
                         onSelect = { onChange(Eraser.SELECT) },
-                        modifier = Modifier.height(37.dp)
+                        modifier = Modifier.height(BUTTON_SIZE.dp)
                     )
                 }
 

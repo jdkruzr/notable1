@@ -36,8 +36,10 @@ import androidx.navigation.NavController
 import com.ethran.notable.R
 import com.ethran.notable.classes.AppRepository
 import com.ethran.notable.classes.DrawCanvas
+import com.ethran.notable.classes.EditorControlTower
 import com.ethran.notable.db.KvProxy
 import com.ethran.notable.modals.AppSettings
+import com.ethran.notable.modals.BUTTON_SIZE
 import com.ethran.notable.modals.PageSettingsModal
 import com.ethran.notable.utils.EditorState
 import com.ethran.notable.utils.History
@@ -48,6 +50,7 @@ import com.ethran.notable.utils.UndoRedoType
 import com.ethran.notable.utils.createFileFromContentUri
 import com.ethran.notable.utils.noRippleClickable
 import compose.icons.FeatherIcons
+import compose.icons.feathericons.Clipboard
 import compose.icons.feathericons.EyeOff
 import io.shipbook.shipbooksdk.Log
 import kotlinx.coroutines.launch
@@ -86,7 +89,7 @@ fun isSelected(state: EditorState, penType: Pen): Boolean {
 @Composable
 @ExperimentalComposeUiApi
 fun Toolbar(
-    navController: NavController, state: EditorState
+    navController: NavController, state: EditorState, controlTower: EditorControlTower
 ) {
     val scope = rememberCoroutineScope()
     var isStrokeSelectionOpen by remember { mutableStateOf(false) }
@@ -164,7 +167,7 @@ fun Toolbar(
             Row(
                 Modifier
                     .background(Color.White)
-                    .height(37.dp)
+                    .height(BUTTON_SIZE.dp)
                     .fillMaxWidth()
             ) {
                 ToolbarButton(
@@ -329,6 +332,22 @@ fun Toolbar(
                         .background(Color.Black)
                 )
 
+                if (state.clipboard != null) {
+                    ToolbarButton(
+                        vectorIcon = FeatherIcons.Clipboard,
+                        contentDescription = "paste",
+                        onSelect = {
+                            controlTower.pasteFromClipboard()
+                        }
+                    )
+                    Box(
+                        Modifier
+                            .fillMaxHeight()
+                            .width(0.5.dp)
+                            .background(Color.Black)
+                    )
+                }
+
                 Spacer(Modifier.weight(1f))
 
                 Box(
@@ -441,7 +460,7 @@ fun Toolbar(
                 )
             } else null,
             contentDescription = "open toolbar",
-            modifier = Modifier.height(37.dp)
+            modifier = Modifier.height(BUTTON_SIZE.dp)
         )
     }
 }

@@ -18,13 +18,15 @@ fun BreadCrumb(folderId: String? = null, onSelectFolderId: (String?) -> Unit) {
     val context = LocalContext.current
 
     fun getFolderList(folderId: String): List<Folder> {
-        var folderList = listOf(FolderRepository(context).get(folderId))
-        val parentId = folderList.first().parentFolderId
+        @Suppress("USELESS_ELVIS")
+        val folder = FolderRepository(context).get(folderId) ?: return emptyList()
+        val folderList = mutableListOf(folder)
+
+        val parentId = folder.parentFolderId
         if (parentId != null) {
-            // '+=' on a read-only list creates a new list under the hood
-            // do we really want to copy that?
-            folderList += getFolderList(parentId)
+            folderList.addAll(getFolderList(parentId))
         }
+
         return folderList
     }
 

@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.IntOffset
 import androidx.core.graphics.toRect
+import androidx.core.graphics.withClip
 import com.ethran.notable.SCREEN_HEIGHT
 import com.ethran.notable.SCREEN_WIDTH
 import com.ethran.notable.TAG
@@ -21,14 +22,17 @@ import com.ethran.notable.db.Image
 import com.ethran.notable.db.KvProxy
 import com.ethran.notable.db.Page
 import com.ethran.notable.db.Stroke
-import com.ethran.notable.utils.imageBounds
 import com.ethran.notable.modals.AppSettings
-import com.ethran.notable.utils.strokeBounds
 import com.ethran.notable.utils.drawBg
 import com.ethran.notable.utils.drawImage
 import com.ethran.notable.utils.drawStroke
+import com.ethran.notable.utils.imageBounds
+import com.ethran.notable.utils.strokeBounds
 import io.shipbook.shipbooksdk.Log
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
@@ -49,6 +53,18 @@ class PageView(
     var viewWidth: Int,
     var viewHeight: Int
 ) {
+    private var strokeInitialLoadingJob: Job? = null
+    private var strokeRemainingLoadingJob: Job? = null
+
+    private var snack: SnackConf? = null
+    fun cleanJob() {
+        //ensure that snack is canceled, even on dispose of the page.
+        CoroutineScope(Dispatchers.IO).launch {
+            snack?.let { SnackState.cancelGlobalSnack.emit(it.id) }
+        }
+        strokeInitialLoadingJob?.cancel()
+        strokeRemainingLoadingJob?.cancel()
+    }
 
     var windowedBitmap = Bitmap.createBitmap(viewWidth, viewHeight, Bitmap.Config.ARGB_8888)
     var windowedCanvas = Canvas(windowedBitmap)
@@ -95,30 +111,81 @@ class PageView(
     }
 
     private fun initFromPersistLayer(isCached: Boolean) {
+        cleanJob()
         // pageInfos
         // TODO page might not exists yet
         val page = AppRepository(context).pageRepository.getById(id)
         scroll = page!!.scroll
+        if (strokeInitialLoadingJob?.isActive == true || strokeRemainingLoadingJob?.isActive == true) {
+            Log.w(TAG, "Strokes are still loading, trying to cancel and resume")
+            cleanJob()
+        }
+        strokeInitialLoadingJob = coroutineScope.launch(Dispatchers.IO) {
+            val startTime = System.currentTimeMillis()
+            val pageWithImages = AppRepository(context).pageRepository.getWithImageById(id)
+            val viewRectangle = Rect(0, 0, windowedCanvas.width, windowedCanvas.height)
+            //for some reason, scroll is always 0 hare, so take it directly from db
+            val viewRectangleWithScroll = Rect(
+                viewRectangle.left,
+                viewRectangle.top + page.scroll,
+                viewRectangle.right,
+                viewRectangle.bottom + page.scroll
+            )
+            strokes =
+                AppRepository(context).strokeRepository.getStrokesInRectangle(
+                    viewRectangleWithScroll,
+                    id
+                )
 
-        coroutineScope.launch {
-            val timeToLoad = measureTimeMillis {
-                val pageWithStrokes = AppRepository(context).pageRepository.getWithStrokeById(id)
-                val pageWithImages = AppRepository(context).pageRepository.getWithImageById(id)
-                strokes = pageWithStrokes.strokes
-                images = pageWithImages.images
+            images = pageWithImages.images
+            indexImages()
+            val indexingJob = coroutineScope.launch(Dispatchers.Default) {
                 indexStrokes()
-                indexImages()
-                computeHeight()
+            }
 
-                if (!isCached) {
-                    // we draw and cache
-                    drawBg(windowedCanvas, page.nativeTemplate, scroll)
-                    drawArea(Rect(0, 0, windowedCanvas.width, windowedCanvas.height))
-                    persistBitmap()
-                    persistBitmapThumbnail()
+
+            val fromDatabase = System.currentTimeMillis()
+            Log.d(TAG, "Strokes fetch from database, in ${fromDatabase - startTime}}")
+            if (!isCached) {
+                // we draw and cache
+//                Log.d(TAG, "We do not have cashed.")
+                drawBg(windowedCanvas, page.nativeTemplate, scroll)
+                drawArea(viewRectangle)
+                persistBitmap()
+                persistBitmapThumbnail()
+                DrawCanvas.refreshUi.emit(Unit)
+            }
+
+            // Fetch all remaining strokes
+            strokeRemainingLoadingJob = coroutineScope.launch(Dispatchers.IO) {
+                val timeToLoad = measureTimeMillis {
+                    // Set duration as safety guard: in 60 s all strokes should be loaded
+                    snack = SnackConf(text = "Loading strokes...", duration = 60000)
+                    SnackState.globalSnackFlow.emit(snack!!)
+//                    Thread.sleep(50000)
+                    val pageWithStrokes =
+                        AppRepository(context).pageRepository.getWithStrokeByIdSuspend(id)
+                    strokes = pageWithStrokes.strokes
+                    indexingJob.cancelAndJoin()
+                    indexStrokes()
+                    computeHeight()
+                    snack?.let { SnackState.cancelGlobalSnack.emit(it.id) }
+                }
+                Log.d(TAG, "All strokes loaded in $timeToLoad ms")
+                // Ensure strokes are fully loaded and visible before drawing them
+                // Switching to the Main thread guarantees that `strokes = pageWithStrokes.strokes`
+                // has completed and is accessible for rendering.
+                // Or at least I hope it does.
+                launch(Dispatchers.Main) {
+                    //required to ensure that everything is visible by draw area.
+                    launch(Dispatchers.Default) {
+                        Log.d(TAG, "Strokes remaining loaded")
+                        drawArea(viewRectangle)
+                        DrawCanvas.refreshUi.emit(Unit)
+                    }
                 }
             }
-            Log.i(TAG, "initializing from persistent layer took ${timeToLoad}ms")
+            Log.d(TAG, "Strokes drawn, in ${System.currentTimeMillis() - fromDatabase}")
         }
 
         //TODO: Images loading
@@ -267,7 +334,6 @@ class PageView(
     }
 
     // ignored strokes are used in handleSelect
-    // TODO: find way for selecting images
     fun drawArea(
         area: Rect,
         ignoredStrokeIds: List<String> = listOf(),
@@ -282,78 +348,65 @@ class PageView(
             area.bottom + scroll
         )
 
-        activeCanvas.save()
-        activeCanvas.clipRect(area)
-        activeCanvas.drawColor(Color.BLACK)
+
+        activeCanvas.withClip(area) {
+            drawColor(Color.BLACK)
 
 
-        val timeToDraw = measureTimeMillis {
-            drawBg(activeCanvas, pageFromDb?.nativeTemplate ?: "blank", scroll)
-            val appSettings = KvProxy(context).get("APP_SETTINGS", AppSettings.serializer())
+            val timeToDraw = measureTimeMillis {
+                drawBg(this, pageFromDb?.nativeTemplate ?: "blank", scroll)
+                val appSettings = KvProxy(context).get("APP_SETTINGS", AppSettings.serializer())
 
-            if (appSettings?.debugMode == true) {
+                if (appSettings?.debugMode == true) {
 //              Draw the gray edge of the rectangle
-                val redPaint = Paint().apply {
-                    color = Color.GRAY
-                    style = Paint.Style.STROKE
-                    strokeWidth = 4f
+                    val redPaint = Paint().apply {
+                        color = Color.GRAY
+                        style = Paint.Style.STROKE
+                        strokeWidth = 4f
+                    }
+                    drawRect(area, redPaint)
                 }
-                activeCanvas.drawRect(area, redPaint)
-            }
-            // Trying to find what throws error when drawing quickly
-            try {
-                images.forEach { image ->
-                    if (ignoredImageIds.contains(image.id)) return@forEach
-                    Log.i(TAG, "PageView.kt: drawing image!")
-                    val bounds = imageBounds(image)
-                    // if stroke is not inside page section
-                    if (!bounds.toRect().intersect(pageArea)) return@forEach
-                    drawImage(context, activeCanvas, image, IntOffset(0, -scroll))
+                // Trying to find what throws error when drawing quickly
+                try {
+                    images.forEach { image ->
+                        if (ignoredImageIds.contains(image.id)) return@forEach
+                        Log.i(TAG, "PageView.kt: drawing image!")
+                        val bounds = imageBounds(image)
+                        // if stroke is not inside page section
+                        if (!bounds.toRect().intersect(pageArea)) return@forEach
+                        drawImage(context, this, image, IntOffset(0, -scroll))
 
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "PageView.kt: Drawing images failed: ${e.message}", e)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "PageView.kt: Drawing images failed: ${e.message}", e)
 
-                val errorMessage = if (e.message?.contains("does not have permission") == true) {
-                    "Permission error: Unable to access image."
-                } else {
-                    "Failed to load images."
+                    val errorMessage =
+                        if (e.message?.contains("does not have permission") == true) {
+                            "Permission error: Unable to access image."
+                        } else {
+                            "Failed to load images."
+                        }
+                    showHint(errorMessage, coroutineScope)
                 }
-                coroutineScope.launch {
-                    SnackState.globalSnackFlow.emit(
-                        SnackConf(
-                            text = errorMessage,
-                            duration = 3000,
+                try {
+                    strokes.forEach { stroke ->
+                        if (ignoredStrokeIds.contains(stroke.id)) return@forEach
+                        val bounds = strokeBounds(stroke)
+                        // if stroke is not inside page section
+                        if (!bounds.toRect().intersect(pageArea)) return@forEach
+
+                        drawStroke(
+                            this, stroke, IntOffset(0, -scroll)
                         )
-                    )
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "PageView.kt: Drawing strokes failed: ${e.message}", e)
+                    showHint("Error drawing strokes", coroutineScope)
                 }
-            }
-            try {
-                strokes.forEach { stroke ->
-                    if (ignoredStrokeIds.contains(stroke.id)) return@forEach
-                    val bounds = strokeBounds(stroke)
-                    // if stroke is not inside page section
-                    if (!bounds.toRect().intersect(pageArea)) return@forEach
 
-                    drawStroke(
-                        activeCanvas, stroke, IntOffset(0, -scroll)
-                    )
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "PageView.kt: Drawing strokes failed: ${e.message}", e)
-                coroutineScope.launch {
-                    SnackState.globalSnackFlow.emit(
-                        SnackConf(
-                            text = "Error drawing strokes",
-                            duration = 3000,
-                        )
-                    )
-                }
             }
-
+            Log.i(TAG, "Drew area in ${timeToDraw}ms")
         }
-//        Log.i(TAG, "Drew area in ${timeToDraw}ms")
-        activeCanvas.restore()
     }
 
     fun updateScroll(_delta: Int) {

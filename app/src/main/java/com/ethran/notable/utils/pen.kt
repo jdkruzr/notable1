@@ -1,6 +1,8 @@
 package com.ethran.notable.utils
 
+
 import com.onyx.android.sdk.pen.style.StrokeStyle
+
 
 enum class Pen(val penName: String) {
     BALLPEN("BALLPEN"),
@@ -10,7 +12,13 @@ enum class Pen(val penName: String) {
     PENCIL("PENCIL"),
     BRUSH("BRUSH"),
     MARKER("MARKER"),
-    FOUNTAIN("FOUNTAIN")
+    FOUNTAIN("FOUNTAIN");
+
+    companion object {
+        fun fromString(name: String?): Pen {
+            return entries.find { it.penName.equals(name, ignoreCase = true) } ?: BALLPEN
+        }
+    }
 }
 
 fun penToStroke(pen: Pen): Int {

@@ -20,7 +20,7 @@ data class StrokePoint(
     val x: Float,
     var y: Float,
     val pressure: Float,
-    val size: Float,
+    val size: Float, //TODO: remove? It seams the same as Stroke size
     val tiltX: Int,
     val tiltY: Int,
     val timestamp: Long,

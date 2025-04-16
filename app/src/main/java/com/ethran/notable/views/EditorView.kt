@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -14,9 +15,9 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
-import com.ethran.notable.classes.DrawCanvas
 import com.ethran.notable.TAG
 import com.ethran.notable.classes.AppRepository
+import com.ethran.notable.classes.DrawCanvas
 import com.ethran.notable.classes.EditorControlTower
 import com.ethran.notable.classes.PageView
 import com.ethran.notable.components.EditorGestureReceiver
@@ -68,6 +69,14 @@ fun EditorView(
                 viewHeight = height
             )
         }
+
+        //cancel loading strokes.
+        DisposableEffect(Unit) {
+            onDispose {
+                page.cleanJob()
+            }
+        }
+
         // Dynamically update the page width when the Box constraints change
         LaunchedEffect(width, height) {
             if (page.width != width || page.viewHeight != height) {
@@ -151,15 +160,23 @@ fun EditorView(
                 controlTower = editorControlTower,
                 state = editorState
             )
-            SelectedBitmap(context = context, editorState = editorState, controlTower = editorControlTower)
-            Row(modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight()) {
+            SelectedBitmap(
+                context = context,
+                editorState = editorState,
+                controlTower = editorControlTower
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight()
+            ) {
                 Spacer(modifier = Modifier.weight(1f))
                 ScrollIndicator(context = context, state = editorState)
             }
             Toolbar(
-                navController = navController, state = editorState
+                navController = navController,
+                state = editorState,
+                controlTower = editorControlTower
             )
 
         }
