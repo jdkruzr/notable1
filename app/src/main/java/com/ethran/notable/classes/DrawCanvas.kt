@@ -276,7 +276,9 @@ class DrawCanvas(
             ) {
                 log.i(  "surface changed $holder")
                 drawCanvasToView()
-                updatePenAndStroke()
+                coroutineScope.launch {
+                    updatePenAndStroke()
+                }
             }
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
@@ -594,6 +596,7 @@ class DrawCanvas(
     }
 
     fun updatePenAndStroke() {
+        // it takes around 11 ms to run on Note 4c.
         log.i(  "Update pen and stroke")
         when (state.mode) {
             // we need to change size according to zoom level before drawing on screen
@@ -622,31 +625,40 @@ class DrawCanvas(
     }
 
     fun updateActiveSurface() {
-        log.i(  "Update editable surface")
+        // Takes at least 50ms on Note 4c,
+        // and I don't think that we need it immediately
+        log.i("Update editable surface")
+        coroutineScope.launch {
+            val toolbarHeight =
+                if (state.isToolbarOpen) convertDpToPixel(40.dp, context).toInt() else 0
 
-        val toolbarHeight =
-            if (state.isToolbarOpen) convertDpToPixel(40.dp, context).toInt() else 0
+            touchHelper.setRawDrawingEnabled(false)
+            touchHelper.closeRawDrawing()
 
-        touchHelper.setRawDrawingEnabled(false)
-        touchHelper.closeRawDrawing()
+            // Store view dimensions locally before using in Rect
+            val viewWidth = this@DrawCanvas.width
+            val viewHeight = this@DrawCanvas.height
 
-        // Determine the exclusion area based on toolbar position
-        val excludeRect: Rect =
-            if (GlobalAppSettings.current.toolbarPosition == AppSettings.Position.Top) {
-                Rect(0, 0, this.width, toolbarHeight)
-            } else {
-                Rect(0, this.height - toolbarHeight, this.width, this.height)
-            }
+            // Determine the exclusion area based on toolbar position
+            val excludeRect: Rect =
+                if (GlobalAppSettings.current.toolbarPosition == AppSettings.Position.Top) {
+                    Rect(0, 0, viewWidth, toolbarHeight)
+                } else {
+                    Rect(0, viewHeight - toolbarHeight, viewWidth, viewHeight)
+                }
 
-        val limitRect = if (GlobalAppSettings.current.toolbarPosition == AppSettings.Position.Top)
-            Rect(0, toolbarHeight, this.width, this.height)
-        else
-            Rect(0, 0, this.width, this.height - toolbarHeight)
+            val limitRect =
+                if (GlobalAppSettings.current.toolbarPosition == AppSettings.Position.Top)
+                    Rect(0, toolbarHeight, viewWidth, viewHeight)
+                else
+                    Rect(0, 0, viewWidth, viewHeight - toolbarHeight)
 
-        touchHelper.setLimitRect(mutableListOf(limitRect)).setExcludeRect(listOf(excludeRect))
-            .openRawDrawing()
+            touchHelper.setLimitRect(mutableListOf(limitRect)).setExcludeRect(listOf(excludeRect))
+                .openRawDrawing()
 
-        touchHelper.setRawDrawingEnabled(true)
+            touchHelper.setRawDrawingEnabled(true)
+            log.i("Update editable surface completed")
+        }
     }
 
 }

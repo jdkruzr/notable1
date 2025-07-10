@@ -45,13 +45,14 @@ fun EditorView(
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val appRepository = remember { AppRepository(context) }
 
     // control if we do have a page
-    if (AppRepository(context).pageRepository.getById(pageId) == null) {
+    if (appRepository.pageRepository.getById(pageId) == null) {
         if (bookId != null) {
             // clean the book
             Log.i(TAG, "Cleaning book")
-            AppRepository(context).bookRepository.removePage(bookId, pageId)
+            appRepository.bookRepository.removePage(bookId, pageId)
         }
         navController.navigate("library")
         return
@@ -91,8 +92,6 @@ fun EditorView(
         val editorControlTower = remember {
             EditorControlTower(scope, page, history, editorState)
         }
-
-        val appRepository = AppRepository(context)
 
         // update opened page
         LaunchedEffect(Unit) {
@@ -140,6 +139,7 @@ fun EditorView(
                 navController.navigate("books/${bookId}/pages/${newPageId}") {
                     popUpTo(lastRoute!!.destination.id) {
                         inclusive = false
+                        // TODO: Maybe setting this@navigate.restoreState = true will improve loading time
                     }
                 }
             }
@@ -150,11 +150,11 @@ fun EditorView(
                 val newPageId = appRepository.getPreviousPageIdFromBookAndPage(
                     pageId = pageId, notebookId = bookId
                 )
-                if (newPageId != null) navController.navigate("books/${bookId}/pages/${newPageId}")
+                if (newPageId != null) navController.navigate("books/${bookId}/pages/${newPageId}"){
+
+                }
             }
         }
-
-        val toolbarPosition = GlobalAppSettings.current.toolbarPosition
 
         InkaTheme {
             EditorSurface(
@@ -179,35 +179,33 @@ fun EditorView(
                 Spacer(modifier = Modifier.weight(1f))
                 ScrollIndicator(context = context, state = editorState)
             }
-            // Toolbar at Top or Bottom
-            when (toolbarPosition) {
-                AppSettings.Position.Top -> {
-                    Toolbar(
-                        navController = navController,
-                        state = editorState,
-                        controlTower = editorControlTower
-                    )
-                }
-
-                AppSettings.Position.Bottom -> {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .fillMaxHeight()
-                    ) { //this fixes this
-                        Spacer(modifier = Modifier.weight(1f))
-                        // Top/center content here
-                        Toolbar(
-                            navController = navController,
-                            state = editorState,
-                            controlTower = editorControlTower
-                        )
-                    }
-                }
-            }
-
+            PositionedToolbar(navController, editorState, editorControlTower)
         }
     }
 }
 
 
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+fun PositionedToolbar(
+    navController: NavController, editorState: EditorState, editorControlTower: EditorControlTower
+) {
+    val position = GlobalAppSettings.current.toolbarPosition
+
+    when (position) {
+        AppSettings.Position.Top -> {
+            Toolbar(navController, editorState, editorControlTower)
+        }
+
+        AppSettings.Position.Bottom -> {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight()
+            ) {
+                Spacer(modifier = Modifier.weight(1f))
+                Toolbar(navController, editorState, editorControlTower)
+            }
+        }
+    }
+}
