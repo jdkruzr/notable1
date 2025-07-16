@@ -70,6 +70,12 @@ interface StrokeDao {
     @Query("DELETE FROM stroke WHERE id IN (:ids)")
     fun deleteAll(ids: List<String>)
 
+    @Query("SELECT * FROM stroke WHERE pageId = :pageId")
+    fun getAllByPageId(pageId: String): List<Stroke>
+
+    @Query("DELETE FROM stroke WHERE pageId = :pageId")
+    fun deleteByPageId(pageId: String)
+
     @Transaction
     @Query("SELECT * FROM stroke WHERE id =:strokeId")
     fun getById(strokeId: String): Stroke
@@ -97,5 +103,13 @@ class StrokeRepository(context: Context) {
 
     fun getStrokeWithPointsById(strokeId: String): Stroke {
         return db.getById(strokeId)
+    }
+
+    fun getAllByPageId(pageId: String): List<Stroke> {
+        return db.getAllByPageId(pageId)
+    }
+
+    fun deleteByPageId(pageId: String) {
+        db.deleteByPageId(pageId)
     }
 }

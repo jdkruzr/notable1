@@ -1,0 +1,101 @@
+{
+  "syncFormat": {
+    "version": "1.0",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "deviceId": "notable-device-uuid-123"
+  },
+  "notebook": {
+    "id": "notebook-uuid-456",
+    "title": "My Research Notes",
+    "parentFolderId": "folder-uuid-789",
+    "defaultNativeTemplate": "lined",
+    "createdAt": "2024-01-10T09:00:00Z",
+    "updatedAt": "2024-01-15T10:25:00Z"
+  },
+  "page": {
+    "id": "page-uuid-abc",
+    "notebookId": "notebook-uuid-456",
+    "pageOrder": 0,
+    "scroll": 150,
+    "background": "lined",
+    "backgroundType": "native",
+    "createdAt": "2024-01-10T09:05:00Z",
+    "updatedAt": "2024-01-15T10:20:00Z"
+  },
+  "strokes": [
+    {
+      "id": "stroke-uuid-def",
+      "size": 2.5,
+      "pen": "BALLPEN",
+      "color": -16777216,
+      "boundingBox": {
+        "top": 100.5,
+        "bottom": 200.3,
+        "left": 50.2,
+        "right": 300.8
+      },
+      "points": [
+        {
+          "x": 50.2,
+          "y": 100.5,
+          "pressure": 0.7,
+          "size": 2.5,
+          "tiltX": 0,
+          "tiltY": 0,
+          "timestamp": 1705396800000
+        },
+        {
+          "x": 52.1,
+          "y": 102.3,
+          "pressure": 0.8,
+          "size": 2.6,
+          "tiltX": 1,
+          "tiltY": 0,
+          "timestamp": 1705396800050
+        },
+        {
+          "x": 55.4,
+          "y": 105.1,
+          "pressure": 0.9,
+          "size": 2.7,
+          "tiltX": 2,
+          "tiltY": 1,
+          "timestamp": 1705396800100
+        }
+      ],
+      "createdAt": "2024-01-15T10:15:00Z",
+      "updatedAt": "2024-01-15T10:15:00Z"
+    }
+  ],
+  "images": [
+    {
+      "id": "image-uuid-ghi",
+      "position": {
+        "x": 400,
+        "y": 300
+      },
+      "dimensions": {
+        "width": 200,
+        "height": 150
+      },
+      "uri": null,
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI9jU8byQAAAABJRU5ErkJggg==",
+      "mimeType": "image/png",
+      "createdAt": "2024-01-15T10:10:00Z",
+      "updatedAt": "2024-01-15T10:10:00Z"
+    }
+  ],
+  "assets": {
+    "backgroundImage": null
+  },
+  "folderPath": [
+    {
+      "id": "folder-uuid-root",
+      "title": "Research"
+    },
+    {
+      "id": "folder-uuid-789",
+      "title": "AI Studies"
+    }
+  ]
+}

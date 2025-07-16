@@ -35,6 +35,14 @@ data class AppSettings(
     val continuousZoom: Boolean = false,
     val visualizePdfPagination: Boolean = false,
     val paginatePdf: Boolean = true,
+    
+    // WebDAV sync settings
+    val webdavSyncEnabled: Boolean = false,
+    val webdavServerUrl: String = "",
+    val webdavUsername: String = "",
+    val webdavPassword: String = "",
+    val webdavAutoSync: Boolean = true,
+    val webdavSyncInterval: Int = 300, // seconds
 
     val doubleTapAction: GestureAction? = defaultDoubleTapAction,
     val twoFingerTapAction: GestureAction? = defaultTwoFingerTapAction,

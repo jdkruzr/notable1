@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Notable Page Sync Format",
+  "description": "JSON schema for syncing Notable pages while preserving all vector data and metadata",
+  "type": "object",
+  "properties": {
+    "syncFormat": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of sync operation"
+        },
+        "deviceId": {
+          "type": "string",
+          "description": "Unique device identifier for conflict resolution"
+        }
+      },
+      "required": ["version", "timestamp", "deviceId"]
+    },
+    "notebook": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "UUID of the notebook"
+        },
+        "title": {
+          "type": "string"
+        },
+        "parentFolderId": {
+          "type": ["string", "null"],
+          "description": "UUID of parent folder, null for root"
+        },
+        "defaultNativeTemplate": {
+          "type": "string",
+          "default": "blank"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "title", "createdAt", "updatedAt"]
+    },
+    "page": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "UUID of the page"
+        },
+        "notebookId": {
+          "type": "string",
+          "description": "UUID of parent notebook"
+        },
+        "pageOrder": {
+          "type": "integer",
+          "description": "Position of page within notebook (0-based)"
+        },
+        "scroll": {
+          "type": "integer",
+          "default": 0
+        },
+        "background": {
+          "type": "string",
+          "default": "blank"
+        },
+        "backgroundType": {
+          "type": "string",
+          "enum": ["native", "image", "pdf"],
+          "default": "native"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "notebookId", "pageOrder", "createdAt", "updatedAt"]
+    },
+    "strokes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the stroke"
+          },
+          "size": {
+            "type": "number"
+          },
+          "pen": {
+            "type": "string",
+            "enum": ["BALLPEN", "PENCIL", "BRUSH", "MARKER", "FOUNTAIN", "LINE"]
+          },
+          "color": {
+            "type": "integer",
+            "description": "ARGB color as integer"
+          },
+          "boundingBox": {
+            "type": "object",
+            "properties": {
+              "top": {"type": "number"},
+              "bottom": {"type": "number"}, 
+              "left": {"type": "number"},
+              "right": {"type": "number"}
+            },
+            "required": ["top", "bottom", "left", "right"]
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "pressure": {"type": "number"},
+                "size": {"type": "number"},
+                "tiltX": {"type": "integer"},
+                "tiltY": {"type": "integer"},
+                "timestamp": {"type": "integer", "description": "Unix timestamp in milliseconds"}
+              },
+              "required": ["x", "y", "pressure", "size", "tiltX", "tiltY", "timestamp"]
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["id", "size", "pen", "color", "boundingBox", "points", "createdAt", "updatedAt"]
+      }
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the image"
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": {"type": "integer"},
+              "y": {"type": "integer"}
+            },
+            "required": ["x", "y"]
+          },
+          "dimensions": {
+            "type": "object",
+            "properties": {
+              "width": {"type": "integer"},
+              "height": {"type": "integer"}
+            },
+            "required": ["width", "height"]
+          },
+          "uri": {
+            "type": ["string", "null"],
+            "description": "Original URI reference, null if embedded"
+          },
+          "data": {
+            "type": ["string", "null"],
+            "description": "Base64-encoded image data for sync, null if URI reference"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "MIME type of image (image/jpeg, image/png, etc.)"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["id", "position", "dimensions", "mimeType", "createdAt", "updatedAt"]
+      }
+    },
+    "assets": {
+      "type": "object",
+      "description": "Additional assets referenced by the page",
+      "properties": {
+        "backgroundImage": {
+          "type": ["object", "null"],
+          "properties": {
+            "data": {"type": "string", "description": "Base64-encoded image data"},
+            "mimeType": {"type": "string"}
+          }
+        }
+      }
+    },
+    "folderPath": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"}
+        },
+        "required": ["id", "title"]
+      },
+      "description": "Full folder path from root to parent folder for organization"
+    }
+  },
+  "required": ["syncFormat", "notebook", "page", "strokes", "images"]
+}

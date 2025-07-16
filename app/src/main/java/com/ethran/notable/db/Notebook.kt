@@ -52,6 +52,9 @@ interface NotebookDao {
     @Query("SELECT * FROM notebook WHERE id = (:notebookId)")
     fun getById(notebookId: String): Notebook?
 
+    @Query("SELECT * FROM notebook")
+    fun getAll(): List<Notebook>
+
     @Query("UPDATE notebook SET openPageId=:pageId WHERE id=:notebookId")
     fun setOpenPageId(notebookId: String, pageId: String)
 
@@ -150,6 +153,10 @@ class BookRepository(context: Context) {
 
     fun delete(id: String) {
         db.delete(id)
+    }
+
+    fun getAllNotebooks(): List<Notebook> {
+        return db.getAll()
     }
 
 }

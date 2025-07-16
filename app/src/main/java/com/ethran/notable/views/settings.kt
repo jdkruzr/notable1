@@ -61,6 +61,8 @@ import com.ethran.notable.modals.GlobalAppSettings
 import com.ethran.notable.utils.isLatestVersion
 import com.ethran.notable.utils.isNext
 import com.ethran.notable.utils.noRippleClickable
+import com.ethran.notable.sync.SyncManager
+import com.ethran.notable.classes.AppRepository
 import kotlin.concurrent.thread
 
 @ExperimentalFoundationApi
@@ -69,6 +71,14 @@ fun SettingsView(navController: NavController) {
     val context = LocalContext.current
     val kv = KvProxy(context)
     val settings = GlobalAppSettings.current
+    val syncManager = remember { 
+        try {
+            SyncManager(context, AppRepository(context))
+        } catch (e: Exception) {
+            // If sync manager initialization fails, create a dummy one
+            null
+        }
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -144,6 +154,20 @@ fun SettingsView(navController: NavController) {
             ) {
                 Column {
                     GeneralSettings(kv, settings)
+                    Divider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f)
+                    )
+                    if (syncManager != null) {
+                        SyncSettings(kv, syncManager)
+                    } else {
+                        Text(
+                            text = "Sync functionality unavailable",
+                            modifier = Modifier.padding(16.dp),
+                            color = MaterialTheme.colors.error
+                        )
+                    }
                     Divider(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         thickness = 0.5.dp,

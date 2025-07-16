@@ -196,6 +196,10 @@ dependencies {
     // For xopp file format
     implementation("org.apache.commons:commons-compress:1.27.1") // GZip support
     implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0"
+    
+    // WebDAV sync support
+    implementation 'com.github.thegrizzlylabs:sardine-android:0.8'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 }
 
 tasks.register('printVersionName') {

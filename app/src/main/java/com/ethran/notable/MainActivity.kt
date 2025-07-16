@@ -48,10 +48,11 @@ import io.shipbook.shipbooksdk.ShipBook
 import kotlinx.coroutines.launch
 
 
-var SCREEN_WIDTH = EpdController.getEpdHeight().toInt()
-var SCREEN_HEIGHT = EpdController.getEpdWidth().toInt()
-
 var TAG = "MainActivity"
+
+// Initialize with safe defaults - will be updated in onCreate()
+var SCREEN_WIDTH = 1404 // Default width for BOOX devices
+var SCREEN_HEIGHT = 1872 // Default height for BOOX devices
 const val APP_SETTINGS_KEY = "APP_SETTINGS"
 const val PACKAGE_NAME = "com.ethran.notable"
 
@@ -69,9 +70,30 @@ class MainActivity : ComponentActivity() {
 
         Log.i(TAG, "Notable started")
 
-
-        SCREEN_WIDTH = applicationContext.resources.displayMetrics.widthPixels
-        SCREEN_HEIGHT = applicationContext.resources.displayMetrics.heightPixels
+        // Try to get EPD dimensions first, fall back to display metrics
+        try {
+            val epdWidth = EpdController.getEpdHeight().toInt()
+            val epdHeight = EpdController.getEpdWidth().toInt()
+            SCREEN_WIDTH = epdWidth
+            SCREEN_HEIGHT = epdHeight
+            Log.i(TAG, "Using EPD dimensions: ${epdWidth}x${epdHeight}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get EPD dimensions, using display metrics: ${e.message}")
+            e.printStackTrace()
+            SCREEN_WIDTH = applicationContext.resources.displayMetrics.widthPixels
+            SCREEN_HEIGHT = applicationContext.resources.displayMetrics.heightPixels
+            Log.i(TAG, "Using display metrics: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}")
+        } catch (e: NoSuchFieldException) {
+            Log.w(TAG, "EPD SDK compatibility issue (NoSuchFieldException), using display metrics: ${e.message}")
+            SCREEN_WIDTH = applicationContext.resources.displayMetrics.widthPixels
+            SCREEN_HEIGHT = applicationContext.resources.displayMetrics.heightPixels
+            Log.i(TAG, "Using display metrics: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}")
+        } catch (e: NoSuchMethodException) {
+            Log.w(TAG, "EPD SDK compatibility issue (NoSuchMethodException), using display metrics: ${e.message}")
+            SCREEN_WIDTH = applicationContext.resources.displayMetrics.widthPixels
+            SCREEN_HEIGHT = applicationContext.resources.displayMetrics.heightPixels
+            Log.i(TAG, "Using display metrics: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}")
+        }
 
 
         val snackState = SnackState()

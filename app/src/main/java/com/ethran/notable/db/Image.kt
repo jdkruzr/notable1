@@ -58,6 +58,12 @@ interface ImageDao {
     @Query("DELETE FROM Image WHERE id IN (:ids)")
     fun deleteAll(ids: List<String>)
 
+    @Query("SELECT * FROM Image WHERE pageId = :pageId")
+    fun getAllByPageId(pageId: String): List<Image>
+
+    @Query("DELETE FROM Image WHERE pageId = :pageId")
+    fun deleteByPageId(pageId: String)
+
     @Transaction
     @Query("SELECT * FROM Image WHERE id = :imageId")
     fun getById(imageId: String): Image
@@ -109,6 +115,14 @@ class ImageRepository(context: Context) {
 
     fun getImageWithPointsById(imageId: String): Image {
         return db.getById(imageId)
+    }
+
+    fun getAllByPageId(pageId: String): List<Image> {
+        return db.getAllByPageId(pageId)
+    }
+
+    fun deleteByPageId(pageId: String) {
+        db.deleteByPageId(pageId)
     }
 }
 
