@@ -4,18 +4,57 @@ import com.thegrizzlylabs.sardineandroid.Sardine
 import com.thegrizzlylabs.sardineandroid.impl.OkHttpSardine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 
 class WebDAVClient(
     private val serverUrl: String,
     private val username: String,
     private val password: String
 ) {
-    private val sardine: Sardine = OkHttpSardine().apply {
-        setCredentials(username, password)
+    private val sardine: Sardine = run {
+        // Configure custom OkHttpClient with longer timeouts for large uploads
+        val customClient = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)      // 30s to establish connection
+            .readTimeout(300, TimeUnit.SECONDS)        // 5 minutes for reading response
+            .writeTimeout(300, TimeUnit.SECONDS)       // 5 minutes for uploading data
+            .build()
+        
+        // Use constructor that accepts custom OkHttpClient (available in sardineandroid 0.8+)
+        OkHttpSardine(customClient).apply {
+            setCredentials(username, password)
+            android.util.Log.d("WebDAVClient", "Custom timeouts configured successfully via constructor")
+        }
     }
     
     private val baseUrl = serverUrl.trimEnd('/')
     private val syncPath = "$baseUrl/notable-sync"
+    
+    // Compression utilities
+    private fun gzipCompress(data: String): ByteArray {
+        val bos = ByteArrayOutputStream()
+        GZIPOutputStream(bos).use { gzipOut ->
+            gzipOut.write(data.toByteArray(Charsets.UTF_8))
+        }
+        return bos.toByteArray()
+    }
+    
+    private fun gzipDecompress(compressedData: ByteArray): String {
+        return GZIPInputStream(ByteArrayInputStream(compressedData)).use { gzipIn ->
+            gzipIn.readBytes().toString(Charsets.UTF_8)
+        }
+    }
+    
+    private fun isGzipped(data: ByteArray): Boolean {
+        // Check for gzip magic number: 0x1f, 0x8b
+        return data.size >= 2 && 
+               data[0] == 0x1f.toByte() && 
+               data[1] == 0x8b.toByte()
+    }
     
     suspend fun initialize(): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -34,8 +73,16 @@ class WebDAVClient(
     suspend fun uploadFile(relativePath: String, content: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val url = "$syncPath/$relativePath"
-            val data = content.toByteArray(Charsets.UTF_8)
-            sardine.put(url, data)
+            
+            // Compress the JSON content before uploading
+            val compressedData = gzipCompress(content)
+            val originalSize = content.toByteArray(Charsets.UTF_8).size
+            val compressedSize = compressedData.size
+            val compressionRatio = (1.0 - compressedSize.toDouble() / originalSize) * 100
+            
+            android.util.Log.d("WebDAVClient", "Uploading $relativePath: ${originalSize} bytes → ${compressedSize} bytes (${String.format("%.1f", compressionRatio)}% compression)")
+            
+            sardine.put(url, compressedData)
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -47,7 +94,27 @@ class WebDAVClient(
         try {
             val url = "$syncPath/$relativePath"
             val inputStream = sardine.get(url)
-            inputStream.bufferedReader().use { it.readText() }
+            
+            // Read raw bytes to check if compressed
+            val data = inputStream.readBytes()
+            
+            if (isGzipped(data)) {
+                // Decompress gzipped data
+                try {
+                    val decompressed = gzipDecompress(data)
+                    android.util.Log.d("WebDAVClient", "Downloaded $relativePath: ${data.size} bytes → ${decompressed.toByteArray().size} bytes (decompressed)")
+                    decompressed
+                } catch (e: Exception) {
+                    android.util.Log.e("WebDAVClient", "Failed to decompress $relativePath: ${e.message}")
+                    throw e
+                }
+            } else {
+                // Legacy uncompressed data
+                val content = String(data, Charsets.UTF_8)
+                android.util.Log.d("WebDAVClient", "Downloaded $relativePath: ${data.size} bytes (uncompressed legacy format)")
+                android.util.Log.d("WebDAVClient", "DEBUG: First 100 chars of uncompressed content: ${content.take(100)}")
+                content
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             null

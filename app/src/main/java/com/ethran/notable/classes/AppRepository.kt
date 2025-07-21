@@ -117,6 +117,14 @@ class AppRepository(context: Context) {
         return bookRepository.getAllNotebooks()
     }
 
+    fun getNotebooksModifiedAfter(lastSyncTime: Date): List<com.ethran.notable.db.Notebook> {
+        return bookRepository.getNotebooksModifiedAfter(lastSyncTime.time)
+    }
+
+    fun getPagesModifiedAfter(lastSyncTime: Date): List<Page> {
+        return pageRepository.getPagesModifiedAfter(lastSyncTime.time)
+    }
+
     fun getNotebookById(notebookId: String): com.ethran.notable.db.Notebook? {
         return bookRepository.getById(notebookId)
     }

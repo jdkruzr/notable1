@@ -212,6 +212,31 @@ fun SyncSettings(
             
             Spacer(modifier = Modifier.height(16.dp))
             
+            // Auto Sync on Notebook Close
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Auto Sync on Notebook Close")
+                    Text(
+                        text = "Automatically sync notebooks when closing them",
+                        style = androidx.compose.material.MaterialTheme.typography.caption,
+                        color = androidx.compose.material.MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+                Switch(
+                    checked = syncManager.isAutoSyncEnabled,
+                    onCheckedChange = { isChecked ->
+                        syncManager.isAutoSyncEnabled = isChecked
+                    },
+                    enabled = settings.webdavSyncEnabled // Only enable if sync is enabled
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
             // Sync Interval
             Row(
                 modifier = Modifier.fillMaxWidth(),

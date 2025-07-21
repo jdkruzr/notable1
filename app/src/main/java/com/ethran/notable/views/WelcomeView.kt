@@ -73,10 +73,17 @@ fun WelcomeView(navController: NavController) {
                 kotlinx.coroutines.delay(500) // Check every 500ms
             }
         }.collect {
-            filePermissionGranted.value = hasFilePermission(context)
+            val newFilePermissionValue = hasFilePermission(context)
+            val oldFilePermissionValue = filePermissionGranted.value
+            
+            filePermissionGranted.value = newFilePermissionValue
             batteryOptimizationDisabled.value = isIgnoringBatteryOptimizations(context)
             recommendedRefreshMode.value = isRecommendedRefreshMode()
             refreshModeString.value = getCurRefreshModeString()
+            
+            if (oldFilePermissionValue != newFilePermissionValue) {
+                android.util.Log.d("WelcomeView", "Permission state changed: $oldFilePermissionValue → $newFilePermissionValue")
+            }
         }
     }
 
@@ -204,10 +211,16 @@ fun WelcomeView(navController: NavController) {
             // Continue Button
             Button(
                 onClick = {
+                    android.util.Log.d("WelcomeView", "Continue button clicked!")
+                    android.util.Log.d("WelcomeView", "  filePermissionGranted.value: ${filePermissionGranted.value}")
+                    android.util.Log.d("WelcomeView", "  hasFilePermission(context): ${hasFilePermission(context)}")
+                    android.util.Log.d("WelcomeView", "  button enabled: ${filePermissionGranted.value}")
+                    
                     KvProxy(context).setAppSettings(
                         GlobalAppSettings.current.copy(showWelcome = false)
                     )
                     navController.navigate("library")
+                    android.util.Log.d("WelcomeView", "Navigation to library triggered")
                 },
                 enabled = filePermissionGranted.value,
                 modifier = Modifier
@@ -216,6 +229,15 @@ fun WelcomeView(navController: NavController) {
             ) {
                 Text(if (filePermissionGranted.value) "Continue" else "Complete Setup First")
             }
+            
+            // Debug state display
+            Text(
+                text = "Debug: filePermissionGranted.value=${filePermissionGranted.value}, " +
+                      "hasFilePermission=${hasFilePermission(context)}, " +
+                      "enabled=${filePermissionGranted.value}",
+                style = androidx.compose.material.MaterialTheme.typography.caption,
+                modifier = Modifier.padding(top = 8.dp)
+            )
         }
     }
 }
@@ -289,7 +311,7 @@ private fun PermissionItem(
 
 
 fun hasFilePermission(context: Context): Boolean {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+    val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         Environment.isExternalStorageManager()
     } else {
         ContextCompat.checkSelfPermission(
@@ -297,6 +319,8 @@ fun hasFilePermission(context: Context): Boolean {
             Manifest.permission.WRITE_EXTERNAL_STORAGE
         ) == PackageManager.PERMISSION_GRANTED
     }
+    android.util.Log.d("WelcomeView", "hasFilePermission: $result, SDK: ${Build.VERSION.SDK_INT}")
+    return result
 }
 
 fun isIgnoringBatteryOptimizations(context: Context): Boolean {

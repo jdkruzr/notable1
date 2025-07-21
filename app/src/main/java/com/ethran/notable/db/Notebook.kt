@@ -55,6 +55,9 @@ interface NotebookDao {
     @Query("SELECT * FROM notebook")
     fun getAll(): List<Notebook>
 
+    @Query("SELECT * FROM notebook WHERE updatedAt > :lastSyncTime")
+    fun getModifiedAfter(lastSyncTime: Long): List<Notebook>
+
     @Query("UPDATE notebook SET openPageId=:pageId WHERE id=:notebookId")
     fun setOpenPageId(notebookId: String, pageId: String)
 
@@ -157,6 +160,10 @@ class BookRepository(context: Context) {
 
     fun getAllNotebooks(): List<Notebook> {
         return db.getAll()
+    }
+
+    fun getNotebooksModifiedAfter(lastSyncTime: Long): List<Notebook> {
+        return db.getModifiedAfter(lastSyncTime)
     }
 
 }

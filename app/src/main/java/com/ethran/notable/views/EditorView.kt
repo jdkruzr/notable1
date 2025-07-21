@@ -28,6 +28,8 @@ import com.ethran.notable.components.SelectedBitmap
 import com.ethran.notable.components.Toolbar
 import com.ethran.notable.datastore.EditorSettingCacheManager
 import com.ethran.notable.modals.AppSettings
+import com.ethran.notable.sync.SyncManager
+import kotlinx.coroutines.launch
 import com.ethran.notable.modals.GlobalAppSettings
 import com.ethran.notable.ui.theme.InkaTheme
 import com.ethran.notable.utils.EditorState
@@ -106,6 +108,21 @@ fun EditorView(
                 // finish selection operation
                 editorState.selectionState.applySelectionDisplace(page)
                 page.disposeOldPage()
+                
+                // Auto-sync notebook when closing if sync is enabled and we have a notebook ID
+                bookId?.let { notebookId ->
+                    scope.launch {
+                        try {
+                            val syncManager = SyncManager(context, appRepository)
+                            val success = syncManager.autoSyncNotebook(notebookId)
+                            if (success) {
+                                android.util.Log.d(TAG, "Auto-sync completed for notebook: $notebookId")
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e(TAG, "Auto-sync failed for notebook: $notebookId", e)
+                        }
+                    }
+                }
             }
         }
 

@@ -8,6 +8,7 @@ import com.ethran.notable.db.*
 import com.ethran.notable.utils.Pen
 import kotlinx.coroutines.*
 import java.util.*
+import java.util.Date
 
 class SyncManager(
     private val context: Context,
@@ -23,6 +24,17 @@ class SyncManager(
     
     private val syncScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
+    init {
+        // Initialize WebDAV client if settings are already configured
+        Log.d(TAG, "SyncManager constructor - checking for existing settings")
+        if (isEnabled && serverUrl.isNotEmpty() && username.isNotEmpty() && password.isNotEmpty()) {
+            Log.d(TAG, "Found existing sync settings, initializing WebDAV client")
+            initialize()
+        } else {
+            Log.d(TAG, "No valid sync settings found on startup")
+        }
+    }
+    
     // Configuration
     var isEnabled: Boolean
         get() = prefs.getBoolean("sync_enabled", false)
@@ -30,6 +42,12 @@ class SyncManager(
             prefs.edit().putBoolean("sync_enabled", value).apply()
             // Re-initialize client when settings change
             if (value) initialize()
+        }
+    
+    var isAutoSyncEnabled: Boolean
+        get() = prefs.getBoolean("auto_sync_on_close_enabled", true) // Default to enabled
+        set(value) {
+            prefs.edit().putBoolean("auto_sync_on_close_enabled", value).apply()
         }
     
     var serverUrl: String
@@ -91,6 +109,61 @@ class SyncManager(
         return webdavClient?.testConnection() ?: false
     }
     
+    /**
+     * Auto-sync a notebook when it's closed, if connection is available
+     * This is a lightweight background sync that only runs if connectivity is good
+     */
+    suspend fun autoSyncNotebook(notebookId: String): Boolean {
+        if (!isEnabled) {
+            Log.d(TAG, "Auto-sync skipped: sync disabled")
+            return false
+        }
+        
+        if (!isAutoSyncEnabled) {
+            Log.d(TAG, "Auto-sync skipped: auto-sync feature disabled")
+            return false
+        }
+        
+        Log.d(TAG, "Auto-sync triggered for notebook: $notebookId")
+        
+        // Quick connection test (timeout should be shorter for auto-sync)
+        val isConnected = try {
+            withContext(Dispatchers.IO) {
+                webdavClient?.testConnection() ?: false
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Auto-sync skipped: connection test failed - ${e.message}")
+            false
+        }
+        
+        if (!isConnected) {
+            Log.d(TAG, "Auto-sync skipped: no connection to server")
+            return false
+        }
+        
+        // Sync the specific notebook in background
+        return try {
+            val result = syncNotebook(notebookId)
+            when (result) {
+                SyncResult.SUCCESS -> {
+                    Log.d(TAG, "Auto-sync completed successfully for notebook: $notebookId")
+                    true
+                }
+                SyncResult.UP_TO_DATE -> {
+                    Log.d(TAG, "Auto-sync completed (up to date) for notebook: $notebookId")
+                    true
+                }
+                else -> {
+                    Log.d(TAG, "Auto-sync failed for notebook: $notebookId - result: $result")
+                    false
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Auto-sync error for notebook: $notebookId", e)
+            false
+        }
+    }
+    
     suspend fun initializeRemoteStructure(): Boolean {
         return webdavClient?.initialize() ?: false
     }
@@ -117,6 +190,8 @@ class SyncManager(
                 folderPath = folderPath,
                 deviceId = deviceId
             )
+            
+            Log.d(TAG, "Serialized page $pageId: ${jsonData.length} bytes, ${strokes.size} strokes, ${images.size} images")
             
             // Upload to WebDAV
             val success = client.uploadPageSync(notebook.id, pageId, jsonData)
@@ -176,6 +251,63 @@ class SyncManager(
         }
     }
     
+    suspend fun syncStandalonePage(pageId: String): SyncResult {
+        if (!isEnabled) return SyncResult.DISABLED
+        
+        val client = webdavClient ?: return SyncResult.NOT_CONFIGURED
+        
+        return try {
+            // Get page data from database (Quick Pages have notebookId = null)
+            val page = repository.getPageById(pageId) ?: return SyncResult.PAGE_NOT_FOUND
+            
+            // Ensure this is actually a standalone page
+            if (page.notebookId != null) {
+                Log.w(TAG, "syncStandalonePage called on notebook page $pageId, using syncPage instead")
+                return syncPage(pageId)
+            }
+            
+            val strokes = repository.getStrokesByPageId(pageId)
+            val images = repository.getImagesByPageId(pageId)
+            val folderPath = getFolderPath(page.parentFolderId)
+            
+            // Create a synthetic notebook for the standalone page
+            val syntheticNotebook = com.ethran.notable.db.Notebook(
+                id = "quickpage_${pageId}",
+                title = "Quick Page",
+                parentFolderId = page.parentFolderId,
+                pageIds = listOf(pageId),
+                createdAt = page.createdAt,
+                updatedAt = page.updatedAt
+            )
+            
+            // Serialize page data
+            val jsonData = serializer.serializePage(
+                notebook = syntheticNotebook,
+                page = page,
+                strokes = strokes,
+                images = images,
+                folderPath = folderPath,
+                deviceId = deviceId
+            )
+            
+            Log.d(TAG, "Serialized standalone page $pageId: ${jsonData.length} bytes, ${strokes.size} strokes, ${images.size} images")
+            
+            // Upload to WebDAV using the synthetic notebook ID
+            val success = client.uploadPageSync(syntheticNotebook.id, pageId, jsonData)
+            
+            if (success) {
+                Log.d(TAG, "Standalone page $pageId synced successfully")
+                SyncResult.SUCCESS
+            } else {
+                Log.e(TAG, "Failed to upload standalone page $pageId")
+                SyncResult.UPLOAD_FAILED
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error syncing standalone page $pageId", e)
+            SyncResult.ERROR
+        }
+    }
+    
     suspend fun syncAll(): SyncResult {
         if (!isEnabled) return SyncResult.DISABLED
         
@@ -192,21 +324,78 @@ class SyncManager(
             // Update device info
             updateDeviceInfo()
             
-            // Get all notebooks
-            val notebooks = repository.getAllNotebooks()
+            // Get notebooks and pages modified since last sync (incremental sync)
+            val lastSyncDate = Date(lastSyncTime)
+            val allLocalNotebooks = repository.getAllNotebooks()
+            Log.d(TAG, "DEBUG: repository.getAllNotebooks() returned ${allLocalNotebooks.size} notebooks")
+            allLocalNotebooks.forEachIndexed { index, notebook ->
+                Log.d(TAG, "DEBUG: Notebook $index: id=${notebook.id}, title='${notebook.title}', updatedAt=${notebook.updatedAt}")
+            }
             
-            val results = notebooks.map { notebook ->
+            val (modifiedNotebooks, modifiedPages) = if (lastSyncTime == 0L) {
+                Log.d(TAG, "First sync - uploading all notebooks and pages")
+                val allPages = repository.getPagesModifiedAfter(Date(0))
+                Log.d(TAG, "DEBUG: repository.getPagesModifiedAfter(Date(0)) returned ${allPages.size} pages")
+                Pair(allLocalNotebooks, allPages)
+            } else if (allLocalNotebooks.isEmpty()) {
+                Log.d(TAG, "Empty local database detected - forcing full download instead of incremental sync")
+                Pair(emptyList<com.ethran.notable.db.Notebook>(), emptyList<com.ethran.notable.db.Page>())
+            } else {
+                val incrementalNotebooks = repository.getNotebooksModifiedAfter(lastSyncDate)
+                val incrementalPages = repository.getPagesModifiedAfter(lastSyncDate)
+                
+                // Check if we have local data but incremental sync finds nothing (data older than sync timestamp)
+                if (incrementalNotebooks.isEmpty() && incrementalPages.isEmpty() && allLocalNotebooks.isNotEmpty()) {
+                    Log.d(TAG, "Local data exists but is older than sync timestamp - forcing full download to merge with server")
+                    Pair(emptyList<com.ethran.notable.db.Notebook>(), emptyList<com.ethran.notable.db.Page>())
+                } else {
+                    Log.d(TAG, "Incremental sync - uploading content modified after $lastSyncDate")
+                    Log.d(TAG, "DEBUG: Incremental sync found ${incrementalNotebooks.size} notebooks and ${incrementalPages.size} pages")
+                    Pair(incrementalNotebooks, incrementalPages)
+                }
+            }
+            
+            // Find notebooks that need syncing due to page changes
+            val notebooksWithModifiedPages = modifiedPages
+                .filter { it.notebookId != null }
+                .mapNotNull { repository.getNotebookById(it.notebookId!!) }
+                .distinctBy { it.id }
+            
+            // Combine explicitly modified notebooks with notebooks having modified pages
+            val allNotebooksToSync = (modifiedNotebooks + notebooksWithModifiedPages).distinctBy { it.id }
+            
+            // Find Quick Pages (standalone pages with notebookId = null)
+            val quickPages = modifiedPages.filter { it.notebookId == null }
+            
+            Log.d(TAG, "Found ${allNotebooksToSync.size} notebooks to sync (${modifiedNotebooks.size} directly modified, ${notebooksWithModifiedPages.size} with modified pages)")
+            Log.d(TAG, "Found ${quickPages.size} Quick Pages to sync")
+            
+            if (allNotebooksToSync.isEmpty() && quickPages.isEmpty()) {
+                Log.d(TAG, "No content to sync")
+                // Don't update sync time here - wait until after download is also complete
+                return SyncResult.UP_TO_DATE
+            }
+            
+            // Sync notebooks (including those with modified pages)
+            val notebookResults = allNotebooksToSync.map { notebook ->
                 syncNotebook(notebook.id)
             }
             
-            val successCount = results.count { it == SyncResult.SUCCESS }
-            val totalCount = results.size
+            // Sync Quick Pages as individual pages
+            val quickPageResults = quickPages.map { page ->
+                syncStandalonePage(page.id)
+            }
             
-            lastSyncTime = System.currentTimeMillis()
+            val allResults = notebookResults + quickPageResults
+            
+            val successCount = allResults.count { it == SyncResult.SUCCESS }
+            val totalCount = allResults.size
+            
+            // Don't update sync time here - will be updated after bidirectional sync is complete
             
             when {
                 successCount == totalCount -> {
-                    Log.d(TAG, "Full sync completed successfully")
+                    Log.d(TAG, "Incremental sync completed successfully ($successCount notebooks)")
                     SyncResult.SUCCESS
                 }
                 successCount > 0 -> {
@@ -214,12 +403,12 @@ class SyncManager(
                     SyncResult.PARTIAL_SUCCESS
                 }
                 else -> {
-                    Log.e(TAG, "Full sync failed")
+                    Log.e(TAG, "Incremental sync failed")
                     SyncResult.ERROR
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error in full sync", e)
+            Log.e(TAG, "Error in incremental sync", e)
             SyncResult.ERROR
         }
     }
@@ -230,16 +419,44 @@ class SyncManager(
         val client = webdavClient ?: return SyncResult.NOT_CONFIGURED
         
         return try {
-            Log.d(TAG, "Starting pullChanges()")
+            Log.d(TAG, "Starting pullChanges() with incremental approach")
             
-            // Get list of all page sync files
+            // Get list of all page sync files with metadata
             val pageFiles = client.listPageSyncs()
             Log.d(TAG, "Found ${pageFiles.size} page files on server")
+            
+            // Check if we need to force full download due to local data being older than sync timestamp
+            val allLocalNotebooks = repository.getAllNotebooks()
+            val shouldForceFullDownload = lastSyncTime > 0L && allLocalNotebooks.isNotEmpty() && 
+                repository.getNotebooksModifiedAfter(Date(lastSyncTime)).isEmpty() && 
+                repository.getPagesModifiedAfter(Date(lastSyncTime)).isEmpty()
+            
+            // Filter files based on last sync time (only process files newer than last sync)
+            val filesToProcess = if (lastSyncTime > 0L && !shouldForceFullDownload) {
+                val lastSyncDate = Date(lastSyncTime)
+                Log.d(TAG, "Incremental pull - only checking files modified after $lastSyncDate")
+                pageFiles.filter { fileInfo ->
+                    (fileInfo.lastModified?.time ?: 0L) > lastSyncTime
+                }
+            } else if (shouldForceFullDownload) {
+                Log.d(TAG, "Forcing full download - local data exists but is older than sync timestamp")
+                pageFiles
+            } else {
+                Log.d(TAG, "First pull - checking all files")
+                pageFiles
+            }
+            
+            Log.d(TAG, "Filtered down to ${filesToProcess.size} files to process")
+            
+            if (filesToProcess.isEmpty()) {
+                Log.d(TAG, "No new files to process")
+                return SyncResult.UP_TO_DATE
+            }
             
             var importCount = 0
             var errorCount = 0
             
-            for (fileInfo in pageFiles) {
+            for (fileInfo in filesToProcess) {
                 Log.d(TAG, "Processing file: ${fileInfo.name}")
                 val syncInfo = fileInfo.parseFilename()
                 if (syncInfo?.type == SyncFileType.PAGE) {
@@ -267,7 +484,7 @@ class SyncManager(
                 }
             }
             
-            Log.d(TAG, "Pull completed: imported $importCount pages, $errorCount errors")
+            Log.d(TAG, "Incremental pull completed: imported $importCount pages, $errorCount errors")
             
             when {
                 importCount > 0 && errorCount == 0 -> SyncResult.SUCCESS
@@ -278,6 +495,46 @@ class SyncManager(
         } catch (e: Exception) {
             Log.e(TAG, "Error pulling changes", e)
             SyncResult.ERROR
+        }
+    }
+    
+    suspend fun hasLocalChanges(): Boolean {
+        return try {
+            val lastSyncDate = Date(lastSyncTime)
+            val modifiedNotebooks = repository.getNotebooksModifiedAfter(lastSyncDate)
+            val modifiedPages = repository.getPagesModifiedAfter(lastSyncDate)
+            
+            val hasChanges = modifiedNotebooks.isNotEmpty() || modifiedPages.isNotEmpty()
+            Log.d(TAG, "hasLocalChanges: $hasChanges (${modifiedNotebooks.size} notebooks, ${modifiedPages.size} pages)")
+            hasChanges
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking local changes", e)
+            false
+        }
+    }
+    
+    suspend fun hasRemoteChanges(): Boolean {
+        if (!isEnabled) return false
+        val client = webdavClient ?: return false
+        
+        return try {
+            if (lastSyncTime == 0L) {
+                // First sync - check if server has any files
+                val pageFiles = client.listPageSyncs()
+                val hasChanges = pageFiles.isNotEmpty()
+                Log.d(TAG, "hasRemoteChanges: $hasChanges (first sync, ${pageFiles.size} files on server)")
+                hasChanges
+            } else {
+                // Check if any files are newer than last sync
+                val pageFiles = client.listPageSyncs()
+                val newFiles = pageFiles.filter { (it.lastModified?.time ?: 0L) > lastSyncTime }
+                val hasChanges = newFiles.isNotEmpty()
+                Log.d(TAG, "hasRemoteChanges: $hasChanges (${newFiles.size} files newer than last sync)")
+                hasChanges
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking remote changes", e)
+            false
         }
     }
     
@@ -339,13 +596,14 @@ class SyncManager(
     }
     
     private suspend fun importPage(syncPageData: SyncPageData) {
-        // Create or update notebook
-        val existingNotebook = repository.getNotebookById(syncPageData.notebook.id)
+        try {
+            // Create or update notebook
+            val existingNotebook = repository.getNotebookById(syncPageData.notebook.id)
         if (existingNotebook == null) {
             val notebook = Notebook(
                 id = syncPageData.notebook.id,
                 title = syncPageData.notebook.title,
-                parentFolderId = syncPageData.notebook.parentFolderId,
+                parentFolderId = null, // Set to null to avoid foreign key constraint failures until folder sync is implemented
                 defaultNativeTemplate = syncPageData.notebook.defaultNativeTemplate,
                 pageIds = listOf(syncPageData.page.id),
                 createdAt = serializer.parseDate(syncPageData.notebook.createdAt),
@@ -422,6 +680,10 @@ class SyncManager(
             )
             repository.insertImage(image)
         }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error importing page ${syncPageData.page.id}: ${e.message}", e)
+            throw e
+        }
     }
     
     private fun getOrCreateDeviceId(): String {
@@ -452,7 +714,7 @@ class SyncManager(
             Log.d(TAG, "Download result: $downloadResult")
             
             // Combine results
-            when {
+            val combinedResult = when {
                 uploadResult == SyncResult.SUCCESS && downloadResult == SyncResult.SUCCESS -> SyncResult.SUCCESS
                 uploadResult == SyncResult.SUCCESS && downloadResult == SyncResult.UP_TO_DATE -> SyncResult.SUCCESS
                 uploadResult == SyncResult.UP_TO_DATE && downloadResult == SyncResult.SUCCESS -> SyncResult.SUCCESS
@@ -460,6 +722,14 @@ class SyncManager(
                 uploadResult == SyncResult.ERROR || downloadResult == SyncResult.ERROR -> SyncResult.ERROR
                 else -> SyncResult.PARTIAL_SUCCESS
             }
+            
+            // Update sync timestamp only after both upload and download are complete
+            if (combinedResult == SyncResult.SUCCESS || combinedResult == SyncResult.UP_TO_DATE) {
+                lastSyncTime = System.currentTimeMillis()
+                Log.d(TAG, "Updated lastSyncTime to ${Date(lastSyncTime)}")
+            }
+            
+            combinedResult
         } catch (e: Exception) {
             Log.e(TAG, "Error in bidirectional sync", e)
             SyncResult.ERROR

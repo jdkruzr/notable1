@@ -108,6 +108,9 @@ interface PageDao {
     @Query("SELECT * FROM page WHERE notebookId is null AND parentFolderId is :folderId")
     fun getSinglePagesInFolder(folderId: String? = null): LiveData<List<Page>>
 
+    @Query("SELECT * FROM page WHERE updatedAt > :lastSyncTime")
+    fun getModifiedAfter(lastSyncTime: Long): List<Page>
+
     @Insert
     fun create(page: Page): Long
 
@@ -155,6 +158,10 @@ class PageRepository(context: Context) {
 
     fun delete(pageId: String) {
         return db.delete(pageId)
+    }
+
+    fun getPagesModifiedAfter(lastSyncTime: Long): List<Page> {
+        return db.getModifiedAfter(lastSyncTime)
     }
 
 

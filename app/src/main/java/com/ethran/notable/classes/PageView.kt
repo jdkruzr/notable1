@@ -44,6 +44,7 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
+import java.util.Date
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.io.path.Path
 import kotlin.math.abs
@@ -324,6 +325,9 @@ class PageView(
 
         saveStrokesToPersistLayer(strokesToAdd)
         PageDataManager.indexStrokes(coroutineScope, id)
+        
+        // Update page timestamp for sync
+        updatePageTimestamp()
 
         persistBitmapDebounced()
     }
@@ -333,6 +337,9 @@ class PageView(
         removeStrokesFromPersistLayer(strokeIds)
         PageDataManager.indexStrokes(coroutineScope, id)
         height = computeHeight()
+        
+        // Update page timestamp for sync
+        updatePageTimestamp()
 
         persistBitmapDebounced()
     }
@@ -357,6 +364,9 @@ class PageView(
 
         saveImagesToPersistLayer(listOf(imageToAdd))
         PageDataManager.indexImages(coroutineScope, id)
+        
+        // Update page timestamp for sync
+        updatePageTimestamp()
 
         persistBitmapDebounced()
     }
@@ -369,6 +379,9 @@ class PageView(
         }
         saveImagesToPersistLayer(imageToAdd)
         PageDataManager.indexImages(coroutineScope, id)
+        
+        // Update page timestamp for sync
+        updatePageTimestamp()
 
         persistBitmapDebounced()
     }
@@ -378,6 +391,9 @@ class PageView(
         removeImagesFromPersistLayer(imageIds)
         PageDataManager.indexImages(coroutineScope, id)
         height = computeHeight()
+        
+        // Update page timestamp for sync
+        updatePageTimestamp()
 
         persistBitmapDebounced()
     }
@@ -778,6 +794,14 @@ class PageView(
         log.i("Page settings updated, ${pageFromDb?.background} | ${page.background}")
         drawAreaScreenCoordinates(Rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT))
         persistBitmapDebounced()
+    }
+    
+    private fun updatePageTimestamp() {
+        pageFromDb?.let { currentPage ->
+            val updatedPage = currentPage.copy(updatedAt = Date())
+            AppRepository(context).pageRepository.update(updatedPage)
+            pageFromDb = updatedPage
+        }
     }
 
     fun updateDimensions(newWidth: Int, newHeight: Int) {
