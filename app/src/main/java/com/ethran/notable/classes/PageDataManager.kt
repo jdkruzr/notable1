@@ -139,15 +139,17 @@ object PageDataManager {
 
     fun indexStrokes(scope: CoroutineScope, pageId: String) {
         scope.launch {
-            strokesById[pageId] =
-                hashMapOf(*strokes[pageId]!!.map { s -> s.id to s }.toTypedArray())
+            strokes[pageId]?.let { strokeList ->
+                strokesById[pageId] = hashMapOf(*strokeList.map { s -> s.id to s }.toTypedArray())
+            }
         }
     }
 
     fun indexImages(scope: CoroutineScope, pageId: String) {
         scope.launch {
-            imagesById[pageId] =
-                hashMapOf(*images[pageId]!!.map { img -> img.id to img }.toTypedArray())
+            images[pageId]?.let { imageList ->
+                imagesById[pageId] = hashMapOf(*imageList.map { img -> img.id to img }.toTypedArray())
+            }
         }
     }
 

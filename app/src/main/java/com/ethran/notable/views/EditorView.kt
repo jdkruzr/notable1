@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,7 +32,10 @@ import com.ethran.notable.components.Toolbar
 import com.ethran.notable.datastore.EditorSettingCacheManager
 import com.ethran.notable.modals.AppSettings
 import com.ethran.notable.sync.SyncManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.ethran.notable.modals.GlobalAppSettings
 import com.ethran.notable.ui.theme.InkaTheme
 import com.ethran.notable.utils.EditorState
@@ -44,20 +50,10 @@ import io.shipbook.shipbooksdk.Log
 fun EditorView(
     navController: NavController, bookId: String?, pageId: String
 ) {
+    android.util.Log.d(TAG, "EditorView: Starting composition for pageId: $pageId")
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-
-    // control if we do have a page
-    if (AppRepository(context).pageRepository.getById(pageId) == null) {
-        if (bookId != null) {
-            // clean the book
-            Log.i(TAG, "Cleaning book")
-            AppRepository(context).bookRepository.removePage(bookId, pageId)
-        }
-        navController.navigate("library")
-        return
-    }
 
     BoxWithConstraints {
         val height = convertDpToPixel(this.maxHeight, context).toInt()
@@ -65,7 +61,9 @@ fun EditorView(
 
 
         val page = remember {
-            PageView(
+            android.util.Log.d(TAG, "EditorView: Creating PageView for $pageId")
+            val startTime = System.currentTimeMillis()
+            val pageView = PageView(
                 context = context,
                 coroutineScope = scope,
                 id = pageId,
@@ -73,6 +71,9 @@ fun EditorView(
                 viewWidth = width,
                 viewHeight = height
             )
+            val duration = System.currentTimeMillis() - startTime
+            android.util.Log.d(TAG, "EditorView: PageView created in ${duration}ms")
+            pageView
         }
 
 
@@ -99,7 +100,9 @@ fun EditorView(
         // update opened page
         LaunchedEffect(Unit) {
             if (bookId != null) {
-                appRepository.bookRepository.setOpenPageId(bookId, pageId)
+                withContext(Dispatchers.IO) {
+                    appRepository.bookRepository.setOpenPageId(bookId, pageId)
+                }
             }
         }
 
@@ -111,15 +114,17 @@ fun EditorView(
                 
                 // Auto-sync notebook when closing if sync is enabled and we have a notebook ID
                 bookId?.let { notebookId ->
-                    scope.launch {
+                    android.util.Log.d(TAG, "EditorView dispose: Starting auto-sync for notebook: $notebookId")
+                    // Use GlobalScope to ensure sync continues after composable disposal
+                    kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                         try {
+                            android.util.Log.d(TAG, "EditorView dispose: Creating SyncManager...")
                             val syncManager = SyncManager(context, appRepository)
+                            android.util.Log.d(TAG, "EditorView dispose: Calling autoSyncNotebook...")
                             val success = syncManager.autoSyncNotebook(notebookId)
-                            if (success) {
-                                android.util.Log.d(TAG, "Auto-sync completed for notebook: $notebookId")
-                            }
+                            android.util.Log.d(TAG, "EditorView dispose: Auto-sync result: $success for notebook: $notebookId")
                         } catch (e: Exception) {
-                            android.util.Log.e(TAG, "Auto-sync failed for notebook: $notebookId", e)
+                            android.util.Log.e(TAG, "EditorView dispose: Auto-sync failed for notebook: $notebookId", e)
                         }
                     }
                 }
@@ -134,6 +139,8 @@ fun EditorView(
             editorState.mode,
             editorState.eraser
         ) {
+            // Debounce settings saves to avoid excessive database operations
+            delay(500) // Wait 500ms before saving
             Log.i(TAG, "EditorView: saving")
             EditorSettingCacheManager.setEditorSettings(
                 context,
@@ -151,12 +158,14 @@ fun EditorView(
 
         fun goToNextPage() {
             if (bookId != null) {
-                val newPageId = appRepository.getNextPageIdFromBookAndPageOrCreate(
-                    pageId = pageId, notebookId = bookId
-                )
-                navController.navigate("books/${bookId}/pages/${newPageId}") {
-                    popUpTo(lastRoute!!.destination.id) {
-                        inclusive = false
+                scope.launch {
+                    val newPageId = appRepository.getNextPageIdFromBookAndPageOrCreate(
+                        pageId = pageId, notebookId = bookId
+                    )
+                    navController.navigate("books/${bookId}/pages/${newPageId}") {
+                        popUpTo(lastRoute!!.destination.id) {
+                            inclusive = false
+                        }
                     }
                 }
             }
@@ -164,10 +173,12 @@ fun EditorView(
 
         fun goToPreviousPage() {
             if (bookId != null) {
-                val newPageId = appRepository.getPreviousPageIdFromBookAndPage(
-                    pageId = pageId, notebookId = bookId
-                )
-                if (newPageId != null) navController.navigate("books/${bookId}/pages/${newPageId}")
+                scope.launch {
+                    val newPageId = appRepository.getPreviousPageIdFromBookAndPage(
+                        pageId = pageId, notebookId = bookId
+                    )
+                    if (newPageId != null) navController.navigate("books/${bookId}/pages/${newPageId}")
+                }
             }
         }
 

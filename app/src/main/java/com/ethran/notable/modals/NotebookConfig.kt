@@ -52,7 +52,9 @@ import com.ethran.notable.components.ShowExportDialog
 import com.ethran.notable.components.ShowFolderSelectionDialog
 import com.ethran.notable.db.BookRepository
 import io.shipbook.shipbooksdk.Log
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 
 @ExperimentalComposeUiApi
@@ -86,9 +88,13 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
             title = "Confirm Deletion",
             message = "Are you sure you want to delete \"${book!!.title}\"?",
             onConfirm = {
-                bookRepository.delete(bookId)
-                showDeleteDialog = false
-                onClose()
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        bookRepository.delete(bookId)
+                    }
+                    showDeleteDialog = false
+                    onClose()
+                }
             },
             onCancel = {
                 showDeleteDialog = false
@@ -127,8 +133,10 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
                 val updatedBook = book!!.copy(parentFolderId = selectedFolder)
                 bookFolder = selectedFolder
                 scope.launch {
-                    // be careful, not to cause race condition.
-                    bookRepository.update(updatedBook)
+                    withContext(Dispatchers.IO) {
+                        // be careful, not to cause race condition.
+                        bookRepository.update(updatedBook)
+                    }
                 }
             }
         )
@@ -199,8 +207,14 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
                                     if (!focusState.isFocused) {
                                         Log.i(TAG, "loose focus")
                                         if (book!!.title != bookTitle) {
-                                            val updatedBook = book!!.copy(title = bookTitle)
-                                            bookRepository.update(updatedBook)
+                                            scope.launch {
+                                                val updatedBook = book!!.copy(title = bookTitle)
+                                                withContext(Dispatchers.IO) {
+                                                    bookRepository.update(updatedBook)
+                                                }
+                                                // Force UI refresh by updating the local state
+                                                // LiveData should pick up the change but this ensures it
+                                            }
                                         }
                                     }
                                 }
@@ -224,7 +238,11 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
                             onChange = {
                                 if (book!!.defaultNativeTemplate != it) {
                                     val updatedBook = book!!.copy(defaultNativeTemplate = it)
-                                    bookRepository.update(updatedBook)
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            bookRepository.update(updatedBook)
+                                        }
+                                    }
                                 }
                             },
                             // this once thrown null ptr exception, when deleting notebook.

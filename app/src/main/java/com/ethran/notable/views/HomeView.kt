@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -90,6 +91,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.concurrent.thread
 
 @ExperimentalFoundationApi
@@ -99,6 +101,7 @@ fun Library(navController: NavController, folderId: String? = null) {
     PageDataManager.clearAllPages()
 
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     val appRepository = AppRepository(LocalContext.current)
 
@@ -229,8 +232,12 @@ fun Library(navController: NavController, folderId: String? = null) {
                     Row(
                         Modifier
                             .noRippleClickable {
-                                val folder = Folder(parentFolderId = folderId)
-                                appRepository.folderRepository.create(folder)
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        val folder = Folder(parentFolderId = folderId)
+                                        appRepository.folderRepository.create(folder)
+                                    }
+                                }
                             }
                             .border(0.5.dp, Color.Black)
                             .padding(horizontal = 10.dp, vertical = 5.dp)
@@ -295,13 +302,17 @@ fun Library(navController: NavController, folderId: String? = null) {
                             .aspectRatio(3f / 4f)
                             .border(1.dp, Color.Gray, RectangleShape)
                             .noRippleClickable {
-                                val page = Page(
-                                    notebookId = null,
-                                    background = GlobalAppSettings.current.defaultNativeTemplate,
-                                    parentFolderId = folderId
-                                )
-                                appRepository.pageRepository.create(page)
-                                navController.navigate("pages/${page.id}")
+                                scope.launch {
+                                    val page = Page(
+                                        notebookId = null,
+                                        background = GlobalAppSettings.current.defaultNativeTemplate,
+                                        parentFolderId = folderId
+                                    )
+                                    withContext(Dispatchers.IO) {
+                                        appRepository.pageRepository.create(page)
+                                    }
+                                    navController.navigate("pages/${page.id}")
+                                }
                             }
                     ) {
                         Icon(
@@ -369,12 +380,16 @@ fun Library(navController: NavController, folderId: String? = null) {
                                     .fillMaxWidth()
                                     .background(Color.LightGray.copy(alpha = 0.3f))
                                     .noRippleClickable {
-                                        appRepository.bookRepository.create(
-                                            Notebook(
-                                                parentFolderId = folderId,
-                                                defaultNativeTemplate = GlobalAppSettings.current.defaultNativeTemplate
-                                            )
-                                        )
+                                        scope.launch {
+                                            withContext(Dispatchers.IO) {
+                                                appRepository.bookRepository.create(
+                                                    Notebook(
+                                                        parentFolderId = folderId,
+                                                        defaultNativeTemplate = GlobalAppSettings.current.defaultNativeTemplate
+                                                    )
+                                                )
+                                            }
+                                        }
                                     }
                                     .border(2.dp, Color.Black, RectangleShape)
                             ) {

@@ -4,6 +4,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.material.Icon
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextDecoration
@@ -12,22 +17,23 @@ import com.ethran.notable.db.FolderRepository
 import com.ethran.notable.utils.noRippleClickable
 import compose.icons.FeatherIcons
 import compose.icons.feathericons.ChevronRight
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun BreadCrumb(folderId: String? = null, onSelectFolderId: (String?) -> Unit) {
     val context = LocalContext.current
+    var folders by remember { mutableStateOf<List<Folder>>(emptyList()) }
 
-    fun getFolderList(folderId: String): List<Folder> {
-        @Suppress("USELESS_ELVIS")
-        val folder = FolderRepository(context).get(folderId) ?: return emptyList()
-        val folderList = mutableListOf(folder)
-
-        val parentId = folder.parentFolderId
-        if (parentId != null) {
-            folderList.addAll(getFolderList(parentId))
+    // Load folder chain asynchronously
+    LaunchedEffect(folderId) {
+        folders = if (folderId != null) {
+            withContext(Dispatchers.IO) {
+                getFolderChain(context, folderId)
+            }
+        } else {
+            emptyList()
         }
-
-        return folderList
     }
 
     Row {
@@ -35,16 +41,31 @@ fun BreadCrumb(folderId: String? = null, onSelectFolderId: (String?) -> Unit) {
             text = "Library",
             textDecoration = TextDecoration.Underline,
             modifier = Modifier.noRippleClickable { onSelectFolderId(null) })
-        if (folderId != null) {
-            val folders = getFolderList(folderId).reversed()
-
-            folders.map { f ->
-                Icon(imageVector = FeatherIcons.ChevronRight, contentDescription = "")
-                Text(
-                    text = f.title,
-                    textDecoration = TextDecoration.Underline,
-                    modifier = Modifier.noRippleClickable { onSelectFolderId(f.id) })
-            }
+        
+        folders.forEach { folder ->
+            Icon(imageVector = FeatherIcons.ChevronRight, contentDescription = "")
+            Text(
+                text = folder.title,
+                textDecoration = TextDecoration.Underline,
+                modifier = Modifier.noRippleClickable { onSelectFolderId(folder.id) })
         }
     }
+}
+
+private suspend fun getFolderChain(context: android.content.Context, folderId: String): List<Folder> {
+    val folderRepository = FolderRepository(context)
+    val chain = mutableListOf<Folder>()
+    var currentFolderId: String? = folderId
+    
+    while (currentFolderId != null) {
+        val folder = folderRepository.get(currentFolderId)
+        if (folder != null) {
+            chain.add(0, folder) // Add to beginning to maintain order
+            currentFolderId = folder.parentFolderId
+        } else {
+            break
+        }
+    }
+    
+    return chain
 }

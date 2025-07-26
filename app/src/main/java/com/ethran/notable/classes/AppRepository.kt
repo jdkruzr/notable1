@@ -10,6 +10,8 @@ import com.ethran.notable.db.Page
 import com.ethran.notable.db.PageRepository
 import com.ethran.notable.db.StrokeRepository
 import com.onyx.android.sdk.extension.isNotNull
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Date
 import java.util.UUID
 
@@ -24,30 +26,36 @@ class AppRepository(context: Context) {
     val kvRepository = KvRepository(context)
     val kvProxy = KvProxy(context)
 
-    fun getNextPageIdFromBookAndPageOrCreate(
+    suspend fun getNextPageIdFromBookAndPageOrCreate(
         notebookId: String,
         pageId: String
     ): String {
         val index = getNextPageIdFromBookAndPage(notebookId, pageId)
         if (index.isNotNull())
             return index
-        val book = bookRepository.getById(notebookId = notebookId)
+        val book = withContext(Dispatchers.IO) {
+            bookRepository.getById(notebookId = notebookId)
+        }
         // creating a new page
         val page = Page(
             notebookId = notebookId,
             background = book!!.defaultNativeTemplate,
             backgroundType = "native"
         )
-        pageRepository.create(page)
-        bookRepository.addPage(notebookId, page.id)
+        withContext(Dispatchers.IO) {
+            pageRepository.create(page)
+            bookRepository.addPage(notebookId, page.id)
+        }
         return page.id
     }
 
-    fun getNextPageIdFromBookAndPage(
+    suspend fun getNextPageIdFromBookAndPage(
         notebookId: String,
         pageId: String
     ): String? {
-        val book = bookRepository.getById(notebookId = notebookId)
+        val book = withContext(Dispatchers.IO) {
+            bookRepository.getById(notebookId = notebookId)
+        }
         val pages = book!!.pageIds
         val index = pages.indexOf(pageId)
         if (index == pages.size - 1)
@@ -55,11 +63,13 @@ class AppRepository(context: Context) {
         return pages[index + 1]
     }
 
-    fun getPreviousPageIdFromBookAndPage(
+    suspend fun getPreviousPageIdFromBookAndPage(
         notebookId: String,
         pageId: String
     ): String? {
-        val book = bookRepository.getById(notebookId = notebookId)
+        val book = withContext(Dispatchers.IO) {
+            bookRepository.getById(notebookId = notebookId)
+        }
         val pages = book!!.pageIds
         val index = pages.indexOf(pageId)
         if (index == 0 || index == -1) {

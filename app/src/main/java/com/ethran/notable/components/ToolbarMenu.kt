@@ -11,7 +11,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -26,6 +31,7 @@ import com.ethran.notable.classes.AppRepository
 import com.ethran.notable.classes.LocalSnackContext
 import com.ethran.notable.classes.SnackConf
 import com.ethran.notable.classes.XoppFile
+import com.ethran.notable.db.Page
 import com.ethran.notable.utils.EditorState
 import com.ethran.notable.utils.convertDpToPixel
 import com.ethran.notable.utils.copyPagePngLinkForObsidian
@@ -51,12 +57,26 @@ fun ToolbarMenu(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackManager = LocalSnackContext.current
-    val page = AppRepository(context).pageRepository.getById(state.pageId)!!
-    val parentFolder =
-        if (page.notebookId != null)
-            AppRepository(context).bookRepository.getById(page.notebookId)!!
-                .parentFolderId
-        else page.parentFolderId
+    
+    var page by remember { mutableStateOf<Page?>(null) }
+    var parentFolder by remember { mutableStateOf<String?>(null) }
+    
+    LaunchedEffect(state.pageId) {
+        withContext(Dispatchers.IO) {
+            val loadedPage = AppRepository(context).pageRepository.getById(state.pageId)
+            page = loadedPage
+            if (loadedPage != null) {
+                parentFolder = if (loadedPage.notebookId != null) {
+                    AppRepository(context).bookRepository.getById(loadedPage.notebookId)?.parentFolderId
+                } else {
+                    loadedPage.parentFolderId
+                }
+            }
+        }
+    }
+    
+    // Don't render menu until data is loaded
+    if (page == null) return
 
     Popup(
         alignment = Alignment.TopEnd,

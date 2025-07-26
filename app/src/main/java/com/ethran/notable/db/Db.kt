@@ -197,7 +197,7 @@ abstract class AppDatabase : RoomDatabase() {
                     // Use Room to build the database
                     INSTANCE =
                         Room.databaseBuilder(context, AppDatabase::class.java, dbFile.absolutePath)
-                            .allowMainThreadQueries() // Avoid in production
+                            // .allowMainThreadQueries() // REMOVED: This was causing ANRs and performance issues
                             .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_22_23, MIGRATION_30_32, MIGRATION_31_32, MIGRATION_33_32)
                             .build()
 

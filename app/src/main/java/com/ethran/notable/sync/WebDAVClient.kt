@@ -63,6 +63,7 @@ class WebDAVClient(
             createDirectoryIfNotExists("$syncPath/devices/")
             createDirectoryIfNotExists("$syncPath/notebooks/")
             createDirectoryIfNotExists("$syncPath/pages/")
+            createDirectoryIfNotExists("$syncPath/images/")
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -116,6 +117,34 @@ class WebDAVClient(
                 content
             }
         } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+    
+    // Binary file operations for images
+    suspend fun uploadBinaryFile(relativePath: String, data: ByteArray): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = "$syncPath/$relativePath"
+            android.util.Log.d("WebDAVClient", "Uploading binary file $relativePath: ${data.size} bytes")
+            sardine.put(url, data)
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("WebDAVClient", "Failed to upload binary file $relativePath", e)
+            e.printStackTrace()
+            false
+        }
+    }
+    
+    suspend fun downloadBinaryFile(relativePath: String): ByteArray? = withContext(Dispatchers.IO) {
+        try {
+            val url = "$syncPath/$relativePath"
+            val inputStream = sardine.get(url)
+            val data = inputStream.readBytes()
+            android.util.Log.d("WebDAVClient", "Downloaded binary file $relativePath: ${data.size} bytes")
+            data
+        } catch (e: Exception) {
+            android.util.Log.e("WebDAVClient", "Failed to download binary file $relativePath", e)
             e.printStackTrace()
             null
         }
@@ -228,6 +257,26 @@ class WebDAVClient(
     
     suspend fun listDevices(): List<WebDAVFileInfo> {
         return listFiles("devices/")
+    }
+    
+    // Image sync helper methods
+    suspend fun uploadImage(imageId: String, filename: String, imageData: ByteArray): Boolean {
+        val remotePath = "images/${imageId}_${filename}"
+        return uploadBinaryFile(remotePath, imageData)
+    }
+    
+    suspend fun downloadImage(imageId: String, filename: String): ByteArray? {
+        val remotePath = "images/${imageId}_${filename}"
+        return downloadBinaryFile(remotePath)
+    }
+    
+    suspend fun imageExists(imageId: String, filename: String): Boolean {
+        val remotePath = "images/${imageId}_${filename}"
+        return fileExists(remotePath)
+    }
+    
+    suspend fun listImages(): List<WebDAVFileInfo> {
+        return listFiles("images/")
     }
     
     suspend fun testConnection(): Boolean = withContext(Dispatchers.IO) {

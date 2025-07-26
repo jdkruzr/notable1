@@ -18,7 +18,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -33,6 +37,7 @@ import com.ethran.notable.R
 import com.ethran.notable.classes.AppRepository
 import com.ethran.notable.classes.DrawCanvas
 import com.ethran.notable.classes.EditorControlTower
+import com.ethran.notable.db.Notebook
 import com.ethran.notable.modals.AppSettings
 import com.ethran.notable.modals.BUTTON_SIZE
 import com.ethran.notable.modals.GlobalAppSettings
@@ -49,7 +54,9 @@ import compose.icons.FeatherIcons
 import compose.icons.feathericons.Clipboard
 import compose.icons.feathericons.EyeOff
 import io.shipbook.shipbooksdk.ShipBook
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val toolbarLog = ShipBook.getLogger("Toolbar")
 fun presentlyUsedToolIcon(mode: Mode, pen: Pen): Int {
@@ -387,33 +394,41 @@ fun Toolbar(
                 )
 
                 if (state.bookId != null) {
-                    val book = AppRepository(context).bookRepository.getById(state.bookId)
+                    var book by remember { mutableStateOf<Notebook?>(null) }
+                    
+                    LaunchedEffect(state.bookId) {
+                        withContext(Dispatchers.IO) {
+                            book = AppRepository(context).bookRepository.getById(state.bookId)
+                        }
+                    }
 
-                    // TODO maybe have generic utils for this ?
-                    val pageNumber = book!!.pageIds.indexOf(state.pageId) + 1
-                    val totalPageNumber = book.pageIds.size
+                    book?.let { notebook ->
+                        // TODO maybe have generic utils for this ?
+                        val pageNumber = notebook.pageIds.indexOf(state.pageId) + 1
+                        val totalPageNumber = notebook.pageIds.size
 
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .height(35.dp)
-                            .padding(10.dp, 0.dp)
-                    ) {
-                        Text(
-                            text = "${pageNumber}/${totalPageNumber}",
-                            fontWeight = FontWeight.Light,
-                            modifier = Modifier.noRippleClickable {
-                                navController.navigate("books/${state.bookId}/pages")
-                            },
-                            textAlign = TextAlign.Center
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .height(35.dp)
+                                .padding(10.dp, 0.dp)
+                        ) {
+                            Text(
+                                text = "${pageNumber}/${totalPageNumber}",
+                                fontWeight = FontWeight.Light,
+                                modifier = Modifier.noRippleClickable {
+                                    navController.navigate("books/${state.bookId}/pages")
+                                },
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        Box(
+                            Modifier
+                                .fillMaxHeight()
+                                .width(0.5.dp)
+                                .background(Color.Black)
                         )
                     }
-                    Box(
-                        Modifier
-                            .fillMaxHeight()
-                            .width(0.5.dp)
-                            .background(Color.Black)
-                    )
                 }
                 // Add Library Button
                 ToolbarButton(

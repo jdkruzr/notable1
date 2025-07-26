@@ -2,6 +2,7 @@ package com.ethran.notable.modals
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,9 +16,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -38,17 +41,32 @@ import com.ethran.notable.TAG
 import com.ethran.notable.db.FolderRepository
 import com.ethran.notable.utils.noRippleClickable
 import io.shipbook.shipbooksdk.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 
 @ExperimentalComposeUiApi
 @Composable
 fun FolderConfigDialog(folderId: String, onClose: () -> Unit) {
-    val folderRepository = FolderRepository(LocalContext.current)
-    val folder = folderRepository.get(folderId)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val folderRepository = FolderRepository(context)
+    
+    var folder by remember { mutableStateOf<com.ethran.notable.db.Folder?>(null) }
+    var folderTitle by remember { mutableStateOf("") }
 
-    var folderTitle by remember {
-        mutableStateOf(folder.title)
+    // Load folder data asynchronously
+    LaunchedEffect(folderId) {
+        withContext(Dispatchers.IO) {
+            val loadedFolder = folderRepository.get(folderId)
+            folder = loadedFolder
+            folderTitle = loadedFolder.title
+        }
     }
+    
+    // Don't render dialog until folder is loaded
+    if (folder == null) return
 
 
     Dialog(
@@ -106,16 +124,50 @@ fun FolderConfigDialog(folderId: String, onClose: () -> Unit) {
                         modifier = Modifier
                             .background(Color(230, 230, 230, 255))
                             .padding(10.dp, 0.dp)
-                            .onFocusChanged { focusState ->
-                                if (!focusState.isFocused) {
-                                    val updatedFolder = folder.copy(title = folderTitle)
-                                    folderRepository.update(updatedFolder)
-                                }
-                            }
 
 
                     )
 
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Action buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    // Cancel button
+                    Text(
+                        text = "Cancel",
+                        textAlign = TextAlign.Center,
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .noRippleClickable {
+                                onClose()
+                            }
+                            .padding(vertical = 8.dp, horizontal = 16.dp)
+                    )
+                    
+                    // Save button
+                    Text(
+                        text = "Save Changes",
+                        textAlign = TextAlign.Center,
+                        color = Color.Blue,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .noRippleClickable {
+                                val updatedFolder = folder!!.copy(title = folderTitle)
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        folderRepository.update(updatedFolder)
+                                    }
+                                    onClose()
+                                }
+                            }
+                            .padding(vertical = 8.dp, horizontal = 16.dp)
+                    )
                 }
             }
 
@@ -133,8 +185,12 @@ fun FolderConfigDialog(folderId: String, onClose: () -> Unit) {
                 Text(text = "Delete Folder",
                     textAlign = TextAlign.Center,
                     modifier = Modifier.noRippleClickable {
-                        folderRepository.delete(folderId)
-                        onClose()
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                folderRepository.delete(folderId)
+                            }
+                            onClose()
+                        }
                     })
             }
         }

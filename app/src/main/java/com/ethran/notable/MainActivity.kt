@@ -31,6 +31,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.ethran.notable.classes.DrawCanvas
 import com.ethran.notable.classes.LocalSnackContext
 import com.ethran.notable.classes.PageDataManager
@@ -101,13 +104,17 @@ class MainActivity : ComponentActivity() {
         snackState.registerCancelGlobalSnackObserver()
         PageDataManager.registerComponentCallbacks(this)
         if (hasRequiredPermissions()) {
-            GlobalAppSettings.update(
-                KvProxy(this).get(APP_SETTINGS_KEY, AppSettings.serializer())
-                    ?: AppSettings(version = 1)
-            )
-            // Used to load up app settings, latter used in
-            // class EditorState
-            EditorSettingCacheManager.init(applicationContext)
+            // Load settings asynchronously to avoid blocking main thread
+            lifecycleScope.launch {
+                withContext(Dispatchers.IO) {
+                    val settings = KvProxy(this@MainActivity).get(APP_SETTINGS_KEY, AppSettings.serializer())
+                        ?: AppSettings(version = 1)
+                    GlobalAppSettings.update(settings)
+                    // Used to load up app settings, latter used in
+                    // class EditorState - must be in IO context as it accesses database
+                    EditorSettingCacheManager.init(applicationContext)
+                }
+            }
         }
 
         //EpdDeviceManager.enterAnimationUpdate(true);

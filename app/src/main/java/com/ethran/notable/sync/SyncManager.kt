@@ -193,12 +193,32 @@ class SyncManager(
             
             Log.d(TAG, "Serialized page $pageId: ${jsonData.length} bytes, ${strokes.size} strokes, ${images.size} images")
             
-            // Upload to WebDAV
+            // Upload image files to WebDAV server
+            var imageUploadSuccess = true
+            for (image in images) {
+                if (image.uri != null) {
+                    try {
+                        val success = uploadImageFile(client, image)
+                        if (!success) {
+                            Log.w(TAG, "Failed to upload image ${image.id}")
+                            imageUploadSuccess = false
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error uploading image ${image.id}", e)
+                        imageUploadSuccess = false
+                    }
+                }
+            }
+            
+            // Upload page metadata to WebDAV
             val success = client.uploadPageSync(notebook.id, pageId, jsonData)
             
-            if (success) {
-                Log.d(TAG, "Page $pageId synced successfully")
+            if (success && imageUploadSuccess) {
+                Log.d(TAG, "Page $pageId synced successfully (including ${images.size} images)")
                 SyncResult.SUCCESS
+            } else if (success && !imageUploadSuccess) {
+                Log.w(TAG, "Page $pageId metadata synced but some images failed")
+                SyncResult.PARTIAL_SUCCESS
             } else {
                 Log.e(TAG, "Failed to upload page $pageId")
                 SyncResult.UPLOAD_FAILED
@@ -292,12 +312,32 @@ class SyncManager(
             
             Log.d(TAG, "Serialized standalone page $pageId: ${jsonData.length} bytes, ${strokes.size} strokes, ${images.size} images")
             
-            // Upload to WebDAV using the synthetic notebook ID
+            // Upload image files to WebDAV server
+            var imageUploadSuccess = true
+            for (image in images) {
+                if (image.uri != null) {
+                    try {
+                        val success = uploadImageFile(client, image)
+                        if (!success) {
+                            Log.w(TAG, "Failed to upload image ${image.id}")
+                            imageUploadSuccess = false
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error uploading image ${image.id}", e)
+                        imageUploadSuccess = false
+                    }
+                }
+            }
+            
+            // Upload page metadata to WebDAV using the synthetic notebook ID
             val success = client.uploadPageSync(syntheticNotebook.id, pageId, jsonData)
             
-            if (success) {
-                Log.d(TAG, "Standalone page $pageId synced successfully")
+            if (success && imageUploadSuccess) {
+                Log.d(TAG, "Standalone page $pageId synced successfully (including ${images.size} images)")
                 SyncResult.SUCCESS
+            } else if (success && !imageUploadSuccess) {
+                Log.w(TAG, "Standalone page $pageId metadata synced but some images failed")
+                SyncResult.PARTIAL_SUCCESS
             } else {
                 Log.e(TAG, "Failed to upload standalone page $pageId")
                 SyncResult.UPLOAD_FAILED
@@ -665,7 +705,7 @@ class SyncManager(
             repository.insertStroke(stroke)
         }
         
-        // Import images (placeholder - would need full image handling)
+        // Import images with file download
         syncPageData.images.forEach { syncImage ->
             val image = Image(
                 id = syncImage.id,
@@ -673,12 +713,31 @@ class SyncManager(
                 y = syncImage.position.y,
                 width = syncImage.dimensions.width,
                 height = syncImage.dimensions.height,
-                uri = syncImage.uri,
+                uri = syncImage.uri, // This will be updated with local path
                 pageId = syncPageData.page.id,
                 createdAt = serializer.parseDate(syncImage.createdAt),
                 updatedAt = serializer.parseDate(syncImage.updatedAt)
             )
-            repository.insertImage(image)
+            
+            // Download image file from server
+            val client = webdavClient
+            if (client != null) {
+                val localPath = downloadImageFile(client, image)
+                if (localPath != null) {
+                    // Update URI to point to downloaded local file
+                    val updatedImage = image.copy(uri = localPath)
+                    repository.insertImage(updatedImage)
+                    Log.d(TAG, "Downloaded and imported image ${image.id}")
+                } else {
+                    // Keep original URI even if download failed
+                    repository.insertImage(image)
+                    Log.w(TAG, "Failed to download image ${image.id}, keeping original URI")
+                }
+            } else {
+                // No client available, just import metadata
+                repository.insertImage(image)
+                Log.w(TAG, "No WebDAV client available, importing image ${image.id} metadata only")
+            }
         }
         } catch (e: Exception) {
             Log.e(TAG, "Error importing page ${syncPageData.page.id}: ${e.message}", e)
@@ -820,6 +879,69 @@ class SyncManager(
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing remote data", e)
             false
+        }
+    }
+    
+    private suspend fun uploadImageFile(client: WebDAVClient, image: Image): Boolean {
+        return try {
+            if (image.uri == null) return true // No file to upload
+            
+            val localFile = java.io.File(image.uri)
+            if (!localFile.exists()) {
+                Log.w(TAG, "Local image file not found: ${image.uri}")
+                return false
+            }
+            
+            // Extract filename from URI
+            val filename = localFile.name
+            
+            // Check if image already exists on server (deduplication)
+            if (client.imageExists(image.id, filename)) {
+                Log.d(TAG, "Image ${image.id} already exists on server, skipping upload")
+                return true
+            }
+            
+            // Read image file data
+            val imageData = localFile.readBytes()
+            
+            // Upload to server
+            val success = client.uploadImage(image.id, filename, imageData)
+            if (success) {
+                Log.d(TAG, "Uploaded image ${image.id} ($filename): ${imageData.size} bytes")
+            }
+            
+            success
+        } catch (e: Exception) {
+            Log.e(TAG, "Error uploading image file ${image.id}", e)
+            false
+        }
+    }
+    
+    private suspend fun downloadImageFile(client: WebDAVClient, image: Image): String? {
+        return try {
+            if (image.uri == null) return null
+            
+            // Extract filename from original URI
+            val originalFile = java.io.File(image.uri)
+            val filename = originalFile.name
+            
+            // Download image data from server
+            val imageData = client.downloadImage(image.id, filename)
+            if (imageData == null) {
+                Log.w(TAG, "Failed to download image ${image.id} from server")
+                return null
+            }
+            
+            // Save to local images folder
+            val localImagesDir = com.ethran.notable.utils.ensureImagesFolder()
+            val localFile = java.io.File(localImagesDir, filename)
+            localFile.writeBytes(imageData)
+            
+            Log.d(TAG, "Downloaded image ${image.id} ($filename): ${imageData.size} bytes")
+            return localFile.absolutePath
+        } catch (e: Exception) {
+            Log.e(TAG, "Error downloading image file ${image.id}", e)
+            null
         }
     }
     

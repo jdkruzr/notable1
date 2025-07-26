@@ -25,6 +25,21 @@ data class StrokePoint(
     val timestamp: Long,
 )
 
+// Lightweight stroke data without points for fast loading
+data class StrokeMetadata(
+    val id: String,
+    val size: Float,
+    val pen: Pen,
+    val color: Int,
+    val top: Float,
+    val bottom: Float,
+    val left: Float,
+    val right: Float,
+    val pageId: String,
+    val createdAt: Date,
+    val updatedAt: Date
+)
+
 @Entity(
     foreignKeys = [ForeignKey(
         entity = Page::class,
@@ -72,6 +87,17 @@ interface StrokeDao {
 
     @Query("SELECT * FROM stroke WHERE pageId = :pageId")
     fun getAllByPageId(pageId: String): List<Stroke>
+    
+    @Query("SELECT * FROM stroke WHERE pageId = :pageId ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun getByPageIdLimited(pageId: String, limit: Int): List<Stroke>
+    
+    // Lightweight query: Get stroke metadata without points (much faster!)
+    @Query("SELECT id, size, pen, color, top, bottom, left, right, pageId, createdAt, updatedAt FROM stroke WHERE pageId = :pageId ORDER BY createdAt ASC")
+    suspend fun getStrokeMetadataByPageId(pageId: String): List<StrokeMetadata>
+    
+    // Load full stroke when we need the points (Room will handle the points list properly)
+    @Query("SELECT * FROM stroke WHERE id = :strokeId")
+    suspend fun getStrokeById(strokeId: String): Stroke?
 
     @Query("DELETE FROM stroke WHERE pageId = :pageId")
     fun deleteByPageId(pageId: String)
@@ -107,6 +133,19 @@ class StrokeRepository(context: Context) {
 
     fun getAllByPageId(pageId: String): List<Stroke> {
         return db.getAllByPageId(pageId)
+    }
+    
+    suspend fun getByPageIdLimited(pageId: String, limit: Int): List<Stroke> {
+        return db.getByPageIdLimited(pageId, limit)
+    }
+    
+    // Lightweight metadata queries for performance
+    suspend fun getStrokeMetadataByPageId(pageId: String): List<StrokeMetadata> {
+        return db.getStrokeMetadataByPageId(pageId)
+    }
+    
+    suspend fun getStrokeById(strokeId: String): Stroke? {
+        return db.getStrokeById(strokeId)
     }
 
     fun deleteByPageId(pageId: String) {
