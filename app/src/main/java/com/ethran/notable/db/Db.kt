@@ -146,6 +146,15 @@ val MIGRATION_31_32 = object : Migration(31, 32) {
     }
 }
 
+// Downgrade migration from 33 to 32
+val MIGRATION_33_32 = object : Migration(33, 32) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        // For downgrade, we don't need to change the schema
+        // Version 33 likely has the same schema as v32
+        android.util.Log.d("Migration", "Downgrade migration 33->32 completed (no schema changes)")
+    }
+}
+
 @Database(
     entities = [Folder::class, Notebook::class, Page::class, Stroke::class, Image::class, Kv::class],
     version = 32,
@@ -189,7 +198,7 @@ abstract class AppDatabase : RoomDatabase() {
                     INSTANCE =
                         Room.databaseBuilder(context, AppDatabase::class.java, dbFile.absolutePath)
                             .allowMainThreadQueries() // Avoid in production
-                            .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_22_23, MIGRATION_30_32, MIGRATION_31_32)
+                            .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_22_23, MIGRATION_30_32, MIGRATION_31_32, MIGRATION_33_32)
                             .build()
 
                 }

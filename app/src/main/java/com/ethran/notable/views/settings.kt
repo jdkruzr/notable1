@@ -73,7 +73,20 @@ fun SettingsView(navController: NavController) {
     val settings = GlobalAppSettings.current
     val syncManager = remember { 
         try {
-            SyncManager(context, AppRepository(context))
+            val manager = SyncManager(context, AppRepository(context))
+            // Initialize sync manager with current settings
+            manager.isEnabled = settings.webdavSyncEnabled
+            manager.serverUrl = settings.webdavServerUrl
+            manager.username = settings.webdavUsername
+            manager.password = settings.webdavPassword
+            manager.isAutoSyncEnabled = settings.webdavAutoSyncOnClose
+            if (settings.webdavSyncEnabled && 
+                settings.webdavServerUrl.isNotEmpty() && 
+                settings.webdavUsername.isNotEmpty() && 
+                settings.webdavPassword.isNotEmpty()) {
+                manager.initialize()
+            }
+            manager
         } catch (e: Exception) {
             // If sync manager initialization fails, create a dummy one
             null
