@@ -26,6 +26,8 @@ import androidx.compose.material.IconButton
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.material.Switch
+import androidx.compose.material.Tab
+import androidx.compose.material.TabRow
 import androidx.compose.material.TabRowDefaults.Divider
 import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
@@ -35,6 +37,8 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.filled.Upgrade
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.ButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,6 +67,11 @@ import com.ethran.notable.utils.isNext
 import com.ethran.notable.utils.noRippleClickable
 import com.ethran.notable.sync.SyncManager
 import com.ethran.notable.classes.AppRepository
+import com.ethran.notable.utils.SyncLogger
+import com.ethran.notable.utils.LogLevel
+import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import kotlin.concurrent.thread
 
 @ExperimentalFoundationApi
@@ -93,21 +102,21 @@ fun SettingsView(navController: NavController) {
         }
     }
 
+    var selectedTabIndex by remember { mutableStateOf(0) }
+    val tabs = listOf("General", "WebDAV", "Gestures", "About")
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colors.background
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
+            modifier = Modifier.fillMaxSize()
         ) {
             // Header with back button
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 16.dp),
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -133,79 +142,28 @@ fun SettingsView(navController: NavController) {
                 Spacer(modifier = Modifier.size(48.dp))
             }
 
-            // Version info card
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                elevation = 2.dp,
-                shape = MaterialTheme.shapes.medium
+            // Tab Row
+            TabRow(
+                selectedTabIndex = selectedTabIndex,
+                modifier = Modifier.fillMaxWidth(),
+                backgroundColor = MaterialTheme.colors.surface,
+                contentColor = MaterialTheme.colors.primary
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
-                ) {
-                    Text(
-                        text = "App Version",
-                        style = MaterialTheme.typography.subtitle1,
-                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
-                    )
-                    Text(
-                        text = "v${BuildConfig.VERSION_NAME}${if (isNext) " [NEXT]" else ""}",
-                        style = MaterialTheme.typography.h6,
-                        modifier = Modifier.padding(top = 4.dp)
+                tabs.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTabIndex == index,
+                        onClick = { selectedTabIndex = index },
+                        text = { Text(title) }
                     )
                 }
             }
 
-            // Settings sections
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                elevation = 2.dp,
-                shape = MaterialTheme.shapes.medium
-            ) {
-                Column {
-                    GeneralSettings(kv, settings)
-                    Divider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        thickness = 0.5.dp,
-                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f)
-                    )
-                    if (syncManager != null) {
-                        SyncSettings(kv, syncManager)
-                    } else {
-                        Text(
-                            text = "Sync functionality unavailable",
-                            modifier = Modifier.padding(16.dp),
-                            color = MaterialTheme.colors.error
-                        )
-                    }
-                    Divider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        thickness = 0.5.dp,
-                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f)
-                    )
-                    EditGestures(kv, settings)
-                }
-            }
-
-            // Additional actions
-            Column(
-                modifier = Modifier.padding(bottom = 16.dp)
-            ) {
-                GitHubSponsorButton(
-                    Modifier
-                        .padding(horizontal = 120.dp, vertical = 16.dp)
-                        .height(48.dp)
-                        .fillMaxWidth()
-                )
-                ShowUpdateButton(
-                    context = context, modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 30.dp, vertical = 8.dp)
-                        .height(48.dp)
-                )
+            // Tab Content
+            when (selectedTabIndex) {
+                0 -> GeneralSettingsTab(kv, settings)
+                1 -> WebDAVSettingsTab(kv, syncManager)
+                2 -> GesturesSettingsTab(kv, settings)
+                3 -> AboutSettingsTab(context)
             }
         }
     }
@@ -474,95 +432,323 @@ fun ShowUpdateButton(context: Context, modifier: Modifier = Modifier) {
 
 
 @Composable
-fun EditGestures(kv: KvProxy, settings: AppSettings?) {
-    var gestureExpanded by remember { mutableStateOf(false) }
+fun GeneralSettingsTab(kv: KvProxy, settings: AppSettings) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = 2.dp,
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                GeneralSettings(kv, settings)
+            }
+        }
+    }
+}
 
+@Composable
+fun WebDAVSettingsTab(kv: KvProxy, syncManager: SyncManager?) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+    ) {
+        if (syncManager != null) {
+            SyncSettings(kv, syncManager)
+            Spacer(modifier = Modifier.height(16.dp))
+            SyncLogViewer()
+        } else {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                elevation = 2.dp,
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Text(
+                    text = "Sync functionality unavailable",
+                    modifier = Modifier.padding(16.dp),
+                    color = MaterialTheme.colors.error
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun GesturesSettingsTab(kv: KvProxy, settings: AppSettings) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = 2.dp,
+            shape = MaterialTheme.shapes.medium
+        ) {
+            EditGestures(kv, settings)
+        }
+    }
+}
+
+@Composable
+fun AboutSettingsTab(context: Context) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
+        // Version info card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            elevation = 2.dp,
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Text(
+                    text = "App Version",
+                    style = MaterialTheme.typography.subtitle1,
+                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+                )
+                Text(
+                    text = "v${BuildConfig.VERSION_NAME}${if (isNext) " [NEXT]" else ""}",
+                    style = MaterialTheme.typography.h6,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+
+        // Additional actions
+        Column {
+            GitHubSponsorButton(
+                Modifier
+                    .padding(horizontal = 60.dp, vertical = 16.dp)
+                    .height(48.dp)
+                    .fillMaxWidth()
+            )
+            ShowUpdateButton(
+                context = context, modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 30.dp, vertical = 8.dp)
+                    .height(48.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun EditGestures(kv: KvProxy, settings: AppSettings?) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp)
+            .padding(16.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .noRippleClickable { gestureExpanded = !gestureExpanded }
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Gesture Settings",
-                style = MaterialTheme.typography.h6,
-                modifier = Modifier.weight(1f)
-            )
-            Icon(
-                imageVector = if (gestureExpanded) Icons.Default.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = if (gestureExpanded) "Collapse" else "Expand"
-            )
-        }
+        Text(
+            text = "Gesture Settings",
+            style = MaterialTheme.typography.h6,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
 
-        if (gestureExpanded) {
-            Divider(
-                color = Color.LightGray,
-                thickness = 1.dp,
+        GestureSelectorRow(
+            title = "Double Tap Action",
+            kv = kv,
+            settings = settings,
+            update = { copy(doubleTapAction = it) },
+            default = AppSettings.defaultDoubleTapAction,
+            override = { doubleTapAction }
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        GestureSelectorRow(
+            title = "Two Finger Tap Action",
+            kv = kv,
+            settings = settings,
+            update = { copy(twoFingerTapAction = it) },
+            default = AppSettings.defaultTwoFingerTapAction,
+            override = { twoFingerTapAction }
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        GestureSelectorRow(
+            title = "Swipe Left Action",
+            kv = kv,
+            settings = settings,
+            update = { copy(swipeLeftAction = it) },
+            default = AppSettings.defaultSwipeLeftAction,
+            override = { swipeLeftAction }
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        GestureSelectorRow(
+            title = "Swipe Right Action",
+            kv = kv,
+            settings = settings,
+            update = { copy(swipeRightAction = it) },
+            default = AppSettings.defaultSwipeRightAction,
+            override = { swipeRightAction }
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        GestureSelectorRow(
+            title = "Two Finger Swipe Left Action",
+            kv = kv,
+            settings = settings,
+            update = { copy(twoFingerSwipeLeftAction = it) },
+            default = AppSettings.defaultTwoFingerSwipeLeftAction,
+            override = { twoFingerSwipeLeftAction }
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        GestureSelectorRow(
+            title = "Two Finger Swipe Right Action",
+            kv = kv,
+            settings = settings,
+            update = { copy(twoFingerSwipeRightAction = it) },
+            default = AppSettings.defaultTwoFingerSwipeRightAction,
+            override = { twoFingerSwipeRightAction }
+        )
+    }
+}
+
+@Composable
+fun SyncLogViewer() {
+    val logs by SyncLogger.logs.collectAsState()
+    var expanded by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        elevation = 2.dp,
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            // Header
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp)
+                    .noRippleClickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.List,
+                    contentDescription = "Sync Log",
+                    tint = MaterialTheme.colors.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Sync Log (${logs.size} entries)",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = if (expanded) "Collapse" else "Expand"
+                )
+            }
+            
+            if (expanded) {
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Clear logs button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Button(
+                        onClick = { SyncLogger.clear() },
+                        colors = ButtonDefaults.buttonColors(backgroundColor = Color.LightGray)
+                    ) {
+                        Text("Clear Log")
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Log entries
+                if (logs.isEmpty()) {
+                    Text(
+                        text = "No sync events logged yet",
+                        style = MaterialTheme.typography.body2,
+                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(8.dp)
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.height(200.dp),
+                        reverseLayout = false // Show newest first (already handled in SyncLogger)
+                    ) {
+                        items(logs) { logEntry ->
+                            LogEntryItem(logEntry)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LogEntryItem(logEntry: com.ethran.notable.utils.SyncLogEntry) {
+    val logColor = when (logEntry.level) {
+        LogLevel.DEBUG -> MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+        LogLevel.INFO -> MaterialTheme.colors.primary
+        LogLevel.WARN -> Color(0xFFFF9800) // Orange
+        LogLevel.ERROR -> MaterialTheme.colors.error
+    }
+    
+    val timeFormat = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()) }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.Top
+        ) {
+            Text(
+                text = timeFormat.format(logEntry.timestamp),
+                style = MaterialTheme.typography.caption,
+                color = MaterialTheme.colors.onSurface.copy(alpha = 0.5f),
+                modifier = Modifier.width(60.dp)
             )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            GestureSelectorRow(
-                title = "Double Tap Action",
-                kv = kv,
-                settings = settings,
-                update = { copy(doubleTapAction = it) },
-                default = AppSettings.defaultDoubleTapAction,
-                override = { doubleTapAction }
+            
+            Text(
+                text = "[${logEntry.level.name.first()}]",
+                style = MaterialTheme.typography.caption,
+                color = logColor,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.width(25.dp)
             )
-
-            GestureSelectorRow(
-                title = "Two Finger Tap Action",
-                kv = kv,
-                settings = settings,
-                update = { copy(twoFingerTapAction = it) },
-                default = AppSettings.defaultTwoFingerTapAction,
-                override = { twoFingerTapAction }
-            )
-
-            GestureSelectorRow(
-                title = "Swipe Left Action",
-                kv = kv,
-                settings = settings,
-                update = { copy(swipeLeftAction = it) },
-                default = AppSettings.defaultSwipeLeftAction,
-                override = { swipeLeftAction }
-            )
-
-            GestureSelectorRow(
-                title = "Swipe Right Action",
-                kv = kv,
-                settings = settings,
-                update = { copy(swipeRightAction = it) },
-                default = AppSettings.defaultSwipeRightAction,
-                override = { swipeRightAction }
-            )
-
-            GestureSelectorRow(
-                title = "Two Finger Swipe Left Action",
-                kv = kv,
-                settings = settings,
-                update = { copy(twoFingerSwipeLeftAction = it) },
-                default = AppSettings.defaultTwoFingerSwipeLeftAction,
-                override = { twoFingerSwipeLeftAction }
-            )
-
-            GestureSelectorRow(
-                title = "Two Finger Swipe Right Action",
-                kv = kv,
-                settings = settings,
-                update = { copy(twoFingerSwipeRightAction = it) },
-                default = AppSettings.defaultTwoFingerSwipeRightAction,
-                override = { twoFingerSwipeRightAction }
+            
+            Text(
+                text = logEntry.message,
+                style = MaterialTheme.typography.caption,
+                color = logColor,
+                modifier = Modifier.weight(1f)
             )
         }
     }

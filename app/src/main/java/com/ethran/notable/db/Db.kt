@@ -155,9 +155,32 @@ val MIGRATION_33_32 = object : Migration(33, 32) {
     }
 }
 
+// Migration from 32 to 33 - Add SyncQueueEntry table
+val MIGRATION_32_33 = object : Migration(32, 33) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("""
+            CREATE TABLE SyncQueueEntry (
+                id TEXT PRIMARY KEY NOT NULL,
+                operation TEXT NOT NULL,
+                targetId TEXT NOT NULL,
+                targetType TEXT NOT NULL,
+                retryCount INTEGER NOT NULL DEFAULT 0,
+                maxRetries INTEGER NOT NULL DEFAULT 5,
+                jsonData TEXT,
+                errorMessage TEXT,
+                createdAt INTEGER NOT NULL,
+                lastAttemptAt INTEGER,
+                nextRetryAt INTEGER
+            )
+        """.trimIndent())
+        
+        android.util.Log.d("Migration", "Migration 32->33: Added SyncQueueEntry table")
+    }
+}
+
 @Database(
-    entities = [Folder::class, Notebook::class, Page::class, Stroke::class, Image::class, Kv::class],
-    version = 32,
+    entities = [Folder::class, Notebook::class, Page::class, Stroke::class, Image::class, Kv::class, SyncQueueEntry::class],
+    version = 33,
     autoMigrations = [
         AutoMigration(19, 20),
         AutoMigration(20, 21),
@@ -184,6 +207,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun pageDao(): PageDao
     abstract fun strokeDao(): StrokeDao
     abstract fun ImageDao(): ImageDao
+    abstract fun syncQueueDao(): SyncQueueDao
 
     companion object {
         private var INSTANCE: AppDatabase? = null
@@ -198,7 +222,7 @@ abstract class AppDatabase : RoomDatabase() {
                     INSTANCE =
                         Room.databaseBuilder(context, AppDatabase::class.java, dbFile.absolutePath)
                             // .allowMainThreadQueries() // REMOVED: This was causing ANRs and performance issues
-                            .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_22_23, MIGRATION_30_32, MIGRATION_31_32, MIGRATION_33_32)
+                            .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_22_23, MIGRATION_30_32, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_32)
                             .build()
 
                 }

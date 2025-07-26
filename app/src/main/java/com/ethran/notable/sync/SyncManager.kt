@@ -6,6 +6,8 @@ import android.util.Log
 import com.ethran.notable.classes.AppRepository
 import com.ethran.notable.db.*
 import com.ethran.notable.utils.Pen
+import com.ethran.notable.utils.NetworkMonitor
+import com.ethran.notable.utils.SyncLogger
 import kotlinx.coroutines.*
 import java.util.*
 import java.util.Date
@@ -18,6 +20,8 @@ class SyncManager(
     
     private val prefs: SharedPreferences = context.getSharedPreferences("sync_settings", Context.MODE_PRIVATE)
     private val serializer = SyncSerializer(context)
+    private val syncQueueRepository = SyncQueueRepository(context)
+    private val networkMonitor = NetworkMonitor(context)
     
     private var webdavClient: WebDAVClient? = null
     private var deviceId: String = getOrCreateDeviceId()
@@ -33,6 +37,9 @@ class SyncManager(
         } else {
             Log.d(TAG, "No valid sync settings found on startup")
         }
+        
+        // Start network monitoring and queue processing
+        startNetworkMonitoring()
     }
     
     // Configuration
@@ -94,19 +101,28 @@ class SyncManager(
     }
     
     suspend fun testConnection(): Boolean {
+        SyncLogger.info("Testing WebDAV connection...")
         Log.d(TAG, "testConnection() called")
         Log.d(TAG, "serverUrl: '$serverUrl', username: '$username', password: '${password.take(3)}...'")
         
         // Ensure we have a client initialized
         if (webdavClient == null) {
+            SyncLogger.debug("WebDAV client not initialized, attempting to initialize")
             Log.d(TAG, "WebDAV client is null, trying to initialize")
             if (!initialize()) {
+                SyncLogger.error("Failed to initialize WebDAV client")
                 Log.d(TAG, "Failed to initialize WebDAV client")
                 return false
             }
         }
         
-        return webdavClient?.testConnection() ?: false
+        val result = webdavClient?.testConnection() ?: false
+        if (result) {
+            SyncLogger.info("✓ WebDAV connection test successful")
+        } else {
+            SyncLogger.error("✗ WebDAV connection test failed")
+        }
+        return result
     }
     
     /**
@@ -214,13 +230,29 @@ class SyncManager(
             val success = client.uploadPageSync(notebook.id, pageId, jsonData)
             
             if (success && imageUploadSuccess) {
+                SyncLogger.info("✓ Page $pageId synced successfully (including ${images.size} images)")
                 Log.d(TAG, "Page $pageId synced successfully (including ${images.size} images)")
                 SyncResult.SUCCESS
             } else if (success && !imageUploadSuccess) {
+                SyncLogger.warn("⚠ Page $pageId metadata synced but some images failed")
                 Log.w(TAG, "Page $pageId metadata synced but some images failed")
                 SyncResult.PARTIAL_SUCCESS
             } else {
-                Log.e(TAG, "Failed to upload page $pageId")
+                SyncLogger.error("✗ Failed to upload page $pageId, queuing for retry")
+                Log.e(TAG, "Failed to upload page $pageId, queuing for retry")
+                // Queue the failed operation for retry when network is available
+                syncQueueRepository.queuePageUpload(pageId, jsonData)
+                
+                // Also queue any failed image uploads
+                for (image in images) {
+                    if (image.uri != null) {
+                        val localFile = java.io.File(image.uri)
+                        if (localFile.exists()) {
+                            syncQueueRepository.queueImageUpload(image.id, image.uri)
+                        }
+                    }
+                }
+                
                 SyncResult.UPLOAD_FAILED
             }
         } catch (e: Exception) {
@@ -248,6 +280,8 @@ class SyncManager(
             val metadataSuccess = client.uploadNotebookMetadata(notebookId, metadataJson)
             
             if (!metadataSuccess) {
+                Log.e(TAG, "Failed to upload notebook metadata $notebookId, queuing for retry")
+                syncQueueRepository.queueNotebookUpload(notebookId, metadataJson)
                 return SyncResult.UPLOAD_FAILED
             }
             
@@ -339,7 +373,20 @@ class SyncManager(
                 Log.w(TAG, "Standalone page $pageId metadata synced but some images failed")
                 SyncResult.PARTIAL_SUCCESS
             } else {
-                Log.e(TAG, "Failed to upload standalone page $pageId")
+                Log.e(TAG, "Failed to upload standalone page $pageId, queuing for retry")
+                // Queue the failed operation for retry when network is available
+                syncQueueRepository.queueStandalonePageUpload(pageId, jsonData)
+                
+                // Also queue any failed image uploads
+                for (image in images) {
+                    if (image.uri != null) {
+                        val localFile = java.io.File(image.uri)
+                        if (localFile.exists()) {
+                            syncQueueRepository.queueImageUpload(image.id, image.uri)
+                        }
+                    }
+                }
+                
                 SyncResult.UPLOAD_FAILED
             }
         } catch (e: Exception) {
@@ -945,7 +992,221 @@ class SyncManager(
         }
     }
     
+    /**
+     * Process queued sync operations that are ready for retry
+     */
+    suspend fun processQueue(): SyncResult {
+        if (!isEnabled) return SyncResult.DISABLED
+        
+        val client = webdavClient ?: return SyncResult.NOT_CONFIGURED
+        
+        return try {
+            val readyEntries = syncQueueRepository.getReadyForRetry(limit = 10)
+            if (readyEntries.isEmpty()) {
+                SyncLogger.debug("No queue entries ready for retry")
+                Log.d(TAG, "No queue entries ready for retry")
+                return SyncResult.UP_TO_DATE
+            }
+            
+            SyncLogger.info("Processing ${readyEntries.size} queued operations from offline queue")
+            Log.d(TAG, "Processing ${readyEntries.size} queued operations")
+            
+            var successCount = 0
+            var failureCount = 0
+            
+            for (entry in readyEntries) {
+                Log.d(TAG, "Processing queue entry: ${entry.operation} for ${entry.targetId}")
+                
+                val success = try {
+                    when (entry.operation) {
+                        SyncOperation.UPLOAD_PAGE -> {
+                            if (entry.jsonData != null) {
+                                // Extract notebook ID from the page data
+                                val page = repository.getPageById(entry.targetId)
+                                val notebookId = page?.notebookId ?: "quickpage_${entry.targetId}"
+                                client.uploadPageSync(notebookId, entry.targetId, entry.jsonData)
+                            } else false
+                        }
+                        SyncOperation.UPLOAD_NOTEBOOK -> {
+                            if (entry.jsonData != null) {
+                                client.uploadNotebookMetadata(entry.targetId, entry.jsonData)
+                            } else false
+                        }
+                        SyncOperation.UPLOAD_STANDALONE_PAGE -> {
+                            if (entry.jsonData != null) {
+                                client.uploadPageSync("quickpage_${entry.targetId}", entry.targetId, entry.jsonData)
+                            } else false
+                        }
+                        SyncOperation.UPLOAD_IMAGE -> {
+                            if (entry.jsonData != null) {
+                                val localFile = java.io.File(entry.jsonData)
+                                if (localFile.exists()) {
+                                    val imageData = localFile.readBytes()
+                                    val filename = localFile.name
+                                    client.uploadImage(entry.targetId, filename, imageData)
+                                } else false
+                            } else false
+                        }
+                        else -> {
+                            Log.w(TAG, "Unsupported queue operation: ${entry.operation}")
+                            false
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error processing queue entry ${entry.id}", e)
+                    false
+                }
+                
+                if (success) {
+                    Log.d(TAG, "Queue entry ${entry.id} processed successfully")
+                    syncQueueRepository.markEntrySuccessful(entry)
+                    successCount++
+                } else {
+                    Log.w(TAG, "Queue entry ${entry.id} failed, updating retry info")
+                    syncQueueRepository.markEntryFailed(entry, "Upload failed during queue processing")
+                    failureCount++
+                }
+            }
+            
+            Log.d(TAG, "Queue processing completed: $successCount successes, $failureCount failures")
+            
+            when {
+                successCount > 0 && failureCount == 0 -> SyncResult.SUCCESS
+                successCount > 0 && failureCount > 0 -> SyncResult.PARTIAL_SUCCESS
+                else -> SyncResult.ERROR
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing sync queue", e)
+            SyncResult.ERROR
+        }
+    }
+    
+    /**
+     * Get sync queue status information
+     */
+    suspend fun getQueueStatus(): SyncQueueStatus {
+        return try {
+            SyncQueueStatus(
+                pendingCount = syncQueueRepository.getPendingCount(),
+                failedCount = syncQueueRepository.getFailedCount(),
+                totalCount = syncQueueRepository.getAllEntries().size
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting queue status", e)
+            SyncQueueStatus(0, 0, 0)
+        }
+    }
+    
+    /**
+     * Clear failed queue entries
+     */
+    suspend fun clearFailedQueueEntries() {
+        try {
+            syncQueueRepository.deleteFailedEntries()
+            Log.d(TAG, "Cleared failed queue entries")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clearing failed queue entries", e)
+        }
+    }
+    
+    /**
+     * Clear all queue entries
+     */
+    suspend fun clearAllQueueEntries() {
+        try {
+            syncQueueRepository.deleteAllEntries()
+            Log.d(TAG, "Cleared all queue entries")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clearing all queue entries", e)
+        }
+    }
+    
+    /**
+     * Start network monitoring and automatic queue processing
+     */
+    private fun startNetworkMonitoring() {
+        Log.d(TAG, "Starting network monitoring for automatic queue processing")
+        networkMonitor.startMonitoring()
+        
+        // Process queue automatically when network becomes available
+        syncScope.launch {
+            var previousNetworkState = false
+            networkMonitor.isNetworkAvailable
+                .collect { isAvailable ->
+                    // Only trigger when network becomes available (false -> true)
+                    if (isAvailable && !previousNetworkState && isEnabled) {
+                        Log.d(TAG, "Network became available, checking queue for pending operations")
+                        
+                        // Small delay to ensure network is stable
+                        delay(2000)
+                        
+                        try {
+                            val queueStatus = getQueueStatus()
+                            if (queueStatus.hasPendingItems) {
+                                Log.d(TAG, "Found ${queueStatus.pendingCount} pending operations, processing queue")
+                                val result = processQueue()
+                                Log.d(TAG, "Automatic queue processing result: $result")
+                            } else {
+                                Log.d(TAG, "No pending operations in queue")
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error during automatic queue processing", e)
+                        }
+                    }
+                    previousNetworkState = isAvailable
+                }
+        }
+    }
+    
+    /**
+     * Stop network monitoring 
+     */
+    private fun stopNetworkMonitoring() {
+        Log.d(TAG, "Stopping network monitoring")
+        networkMonitor.stopMonitoring()
+    }
+    
+    /**
+     * Check if network is suitable for sync operations
+     */
+    fun isNetworkSuitableForSync(): Boolean {
+        return networkMonitor.isNetworkSuitableForSync()
+    }
+    
+    /**
+     * Check if network is available but limited (cellular)
+     */
+    fun isNetworkLimited(): Boolean {
+        return networkMonitor.isNetworkLimited()
+    }
+    
+    /**
+     * Manually trigger queue processing (for user-initiated retry)
+     */
+    suspend fun retryQueuedOperations(): SyncResult {
+        if (!isEnabled) return SyncResult.DISABLED
+        
+        Log.d(TAG, "Manual retry of queued operations requested")
+        
+        return try {
+            val queueStatus = getQueueStatus()
+            if (!queueStatus.hasPendingItems) {
+                Log.d(TAG, "No pending operations to retry")
+                return SyncResult.UP_TO_DATE
+            }
+            
+            Log.d(TAG, "Manually processing ${queueStatus.pendingCount} pending operations")
+            val result = processQueue()
+            Log.d(TAG, "Manual queue processing result: $result")
+            result
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during manual queue processing", e)
+            SyncResult.ERROR
+        }
+    }
+    
     fun cleanup() {
+        stopNetworkMonitoring()
         syncScope.cancel()
     }
 }
@@ -960,4 +1221,14 @@ enum class SyncResult {
     PAGE_NOT_FOUND,
     NOTEBOOK_NOT_FOUND,
     UPLOAD_FAILED
+}
+
+data class SyncQueueStatus(
+    val pendingCount: Int,
+    val failedCount: Int,
+    val totalCount: Int
+) {
+    val hasItems: Boolean = totalCount > 0
+    val hasPendingItems: Boolean = pendingCount > 0
+    val hasFailedItems: Boolean = failedCount > 0
 }
