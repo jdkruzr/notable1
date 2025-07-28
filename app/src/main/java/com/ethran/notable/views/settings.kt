@@ -48,6 +48,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.ethran.notable.utils.getDbDir
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.text.DecimalFormat
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -560,8 +564,37 @@ fun GesturesSettingsTab(kv: KvProxy, settings: AppSettings) {
     }
 }
 
+private fun formatFileSize(sizeInBytes: Long): String {
+    if (sizeInBytes == 0L) return "0 B"
+    
+    val units = arrayOf("B", "KB", "MB", "GB")
+    val digitGroups = (Math.log10(sizeInBytes.toDouble()) / Math.log10(1024.0)).toInt()
+    val size = sizeInBytes / Math.pow(1024.0, digitGroups.toDouble())
+    
+    return DecimalFormat("#,##0.#").format(size) + " " + units[digitGroups]
+}
+
 @Composable
 fun AboutSettingsTab(context: Context) {
+    var databaseSize by remember { mutableStateOf<String?>(null) }
+    
+    // Calculate database size asynchronously
+    LaunchedEffect(Unit) {
+        databaseSize = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val dbDir = getDbDir()
+                val dbFile = File(dbDir, "app_database")
+                if (dbFile.exists()) {
+                    formatFileSize(dbFile.length())
+                } else {
+                    "Database not found"
+                }
+            } catch (e: Exception) {
+                "Unable to calculate"
+            }
+        }
+    }
+    
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -586,6 +619,30 @@ fun AboutSettingsTab(context: Context) {
                 )
                 Text(
                     text = "v${BuildConfig.VERSION_NAME}${if (isNext) " [NEXT]" else ""}",
+                    style = MaterialTheme.typography.h6,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+        
+        // Database storage info card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            elevation = 2.dp,
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Text(
+                    text = "Storage",
+                    style = MaterialTheme.typography.subtitle1,
+                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+                )
+                Text(
+                    text = "Database: ${databaseSize ?: "Calculating..."}",
                     style = MaterialTheme.typography.h6,
                     modifier = Modifier.padding(top = 4.dp)
                 )

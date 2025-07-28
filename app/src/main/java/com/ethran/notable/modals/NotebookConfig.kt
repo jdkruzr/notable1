@@ -307,7 +307,6 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
 
                     }
                     Text("Pages: ${book!!.pageIds.size}")
-                    Text("Size: TODO!")
                     Row {
                         Text("In Folder: ")
                         BreadCrumb(bookFolder) { }
