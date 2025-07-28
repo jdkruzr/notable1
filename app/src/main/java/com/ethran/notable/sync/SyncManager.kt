@@ -1003,9 +1003,16 @@ class SyncManager(
         return try {
             if (image.uri == null) return true // No file to upload
             
-            val localFile = java.io.File(image.uri)
+            // Convert file:// URI to proper file path
+            val filePath = if (image.uri.startsWith("file://")) {
+                image.uri.removePrefix("file://")
+            } else {
+                image.uri
+            }
+            
+            val localFile = java.io.File(filePath)
             if (!localFile.exists()) {
-                Log.w(TAG, "Local image file not found: ${image.uri}")
+                Log.w(TAG, "Local image file not found: ${image.uri} (resolved to: $filePath)")
                 return false
             }
             
@@ -1013,9 +1020,14 @@ class SyncManager(
             val filename = localFile.name
             
             // Check if image already exists on server (deduplication)
-            if (client.imageExists(image.id, filename)) {
-                Log.d(TAG, "Image ${image.id} already exists on server, skipping upload")
-                return true
+            // Note: Some servers have auth issues with HEAD requests, so we handle this gracefully
+            try {
+                if (client.imageExists(image.id, filename)) {
+                    Log.d(TAG, "Image ${image.id} already exists on server, skipping upload")
+                    return true
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not check if image exists (server auth issue?), proceeding with upload: ${e.message}")
             }
             
             // Read image file data
@@ -1292,6 +1304,32 @@ class SyncManager(
     fun cleanup() {
         stopNetworkMonitoring()
         syncScope.cancel()
+    }
+    
+    // Test method to try the custom REPORT method
+    suspend fun testSyncCollectionReport(): Boolean {
+        if (!isEnabled) return false
+        val client = webdavClient ?: return false
+        
+        return try {
+            Log.d(TAG, "Testing sync-collection REPORT method...")
+            
+            // First try against our pages/ subfolder
+            Log.d(TAG, "Testing against pages/ subfolder...")
+            val (files1, syncToken1) = client.listFilesWithSyncCollection("pages/")
+            Log.d(TAG, "Pages test: ${files1.size} files returned, syncToken: $syncToken1")
+            
+            // Also try against root files collection (more likely to support sync-collection)
+            Log.d(TAG, "Testing against root files collection...")
+            val (files2, syncToken2) = client.listFilesWithSyncCollection("")
+            Log.d(TAG, "Root test: ${files2.size} files returned, syncToken: $syncToken2")
+            
+            Log.d(TAG, "REPORT tests completed")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "REPORT test failed", e)
+            false
+        }
     }
 }
 

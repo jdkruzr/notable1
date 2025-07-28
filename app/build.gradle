@@ -112,6 +112,17 @@ android {
 
         resources {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
+            excludes += '/META-INF/DEPENDENCIES'
+            excludes += '/META-INF/LICENSE'
+            excludes += '/META-INF/LICENSE.txt'
+            excludes += '/META-INF/LICENSE.md'
+            excludes += '/META-INF/NOTICE'
+            excludes += '/META-INF/NOTICE.txt'
+            excludes += '/META-INF/NOTICE.md'
+            excludes += '/META-INF/ASL2.0'
+            excludes += '/META-INF/*.RSA'
+            excludes += '/META-INF/*.SF'
+            excludes += '/META-INF/*.DSA'
         }
         jniLibs {
             pickFirsts += ['**/*.so']
@@ -197,8 +208,8 @@ dependencies {
     implementation("org.apache.commons:commons-compress:1.27.1") // GZip support
     implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0"
     
-    // WebDAV sync support
-    implementation 'com.github.thegrizzlylabs:sardine-android:0.8'
+    // WebDAV sync support - sardine-android for compatibility + custom REPORT method
+    implementation 'com.github.thegrizzlylabs:sardine-android:0.9'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 }
 

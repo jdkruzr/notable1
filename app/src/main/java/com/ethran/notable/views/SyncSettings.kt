@@ -342,6 +342,45 @@ fun SyncSettings(
             
             Spacer(modifier = Modifier.height(8.dp))
             
+            // Test REPORT Method Button (for development/testing)
+            var isTestingReport by remember { mutableStateOf(false) }
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        isTestingReport = true
+                        syncStatus = "Testing REPORT method..."
+                        
+                        val success = syncManager.testSyncCollectionReport()
+                        syncStatus = if (success) {
+                            "✓ REPORT method test completed - check logs for details"
+                        } else {
+                            "✗ REPORT method not supported or failed - check logs"
+                        }
+                        
+                        isTestingReport = false
+                    }
+                },
+                enabled = !isTestingReport && !isSyncing && settings.webdavServerUrl.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isTestingReport) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Icon(
+                    imageVector = Icons.Default.CloudSync,
+                    contentDescription = "Test REPORT",
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (isTestingReport) "Testing..." else "Test REPORT Method")
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
             // Replace Local with Server Button
             Button(
                 onClick = {
