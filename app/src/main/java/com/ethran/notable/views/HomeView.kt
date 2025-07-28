@@ -347,34 +347,23 @@ fun Library(navController: NavController, folderId: String? = null) {
                     items(quickPages!!.reversed()) { quickPageNotebook ->
                         val pageId = quickPageNotebook.pageIds.firstOrNull()
                         if (pageId != null) {
-                            var isPageSelected by remember { mutableStateOf(false) }
                             var isQuickPagePropertiesOpen by remember { mutableStateOf(false) }
-                            Box {
-                                PagePreview(
-                                    modifier = Modifier
-                                        .combinedClickable(
-                                            onClick = {
-                                                navController.navigate("books/${quickPageNotebook.id}/pages/$pageId")
-                                            },
-                                            onLongClick = {
-                                                isPageSelected = true
-                                            },
-                                        )
-                                        .width(100.dp)
-                                        .aspectRatio(3f / 4f)
-                                        .border(1.dp, Color.Black, RectangleShape),
-                                    pageId = pageId
-                                )
-                                if (isPageSelected) PageMenu(
-                                    notebookId = quickPageNotebook.id,
-                                    pageId = pageId,
-                                    canDelete = true,
-                                    onShowProperties = { 
-                                        isQuickPagePropertiesOpen = true
-                                        isPageSelected = false
-                                    },
-                                    onClose = { isPageSelected = false })
-                            }
+                            
+                            PagePreview(
+                                modifier = Modifier
+                                    .combinedClickable(
+                                        onClick = {
+                                            navController.navigate("books/${quickPageNotebook.id}/pages/$pageId")
+                                        },
+                                        onLongClick = {
+                                            isQuickPagePropertiesOpen = true
+                                        },
+                                    )
+                                    .width(100.dp)
+                                    .aspectRatio(3f / 4f)
+                                    .border(1.dp, Color.Black, RectangleShape),
+                                pageId = pageId
+                            )
                             
                             // Quick Page properties dialog
                             if (isQuickPagePropertiesOpen) {

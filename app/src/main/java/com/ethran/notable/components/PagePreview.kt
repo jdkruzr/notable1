@@ -14,7 +14,7 @@ import coil.compose.rememberAsyncImagePainter
 import java.io.File
 
 @Composable
-fun PagePreview(modifier: Modifier, pageId: String) {
+fun PagePreview(modifier: Modifier, pageId: String, refreshKey: Long = 0L) {
     val context = LocalContext.current
     val imgFile = remember (pageId){
         File(context.filesDir, "pages/previews/thumbs/$pageId")
@@ -22,7 +22,7 @@ fun PagePreview(modifier: Modifier, pageId: String) {
 
     var imgBitmap: Bitmap? = null
     if (imgFile.exists()) {
-        imgBitmap = remember(pageId) {
+        imgBitmap = remember(pageId, refreshKey) {
             BitmapFactory.decodeFile(imgFile.absolutePath)
         }
     }

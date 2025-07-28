@@ -60,7 +60,58 @@ import io.shipbook.shipbooksdk.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.ethran.notable.classes.AppRepository
+import java.io.File
+import java.io.BufferedOutputStream
+import java.io.FileOutputStream
+import java.nio.file.Files
+import kotlin.io.path.Path
+import android.graphics.BitmapFactory
+import androidx.core.graphics.scale
+import android.graphics.Bitmap
+import com.ethran.notable.utils.drawCanvas
 
+/**
+ * Generate thumbnail for a page by rendering the page content and scaling it down
+ */
+private suspend fun generatePageThumbnail(context: android.content.Context, pageId: String) {
+    withContext(Dispatchers.IO) {
+        try {
+            Log.d("NotebookConfig", "Generating thumbnail for page: $pageId")
+            
+            // Render the full page content
+            val fullBitmap = drawCanvas(context, pageId)
+            
+            if (fullBitmap != null) {
+                // Create thumbnail directory if needed
+                val thumbnailFile = File(context.filesDir, "pages/previews/thumbs/$pageId")
+                Files.createDirectories(Path(thumbnailFile.absolutePath).parent)
+                
+                // Scale down to thumbnail size (500px width, maintaining aspect ratio)
+                val ratio = fullBitmap.height.toFloat() / fullBitmap.width.toFloat()
+                val thumbnailBitmap = fullBitmap.scale(500, (500 * ratio).toInt(), false)
+                
+                // Save as JPEG with 80% quality
+                val outputStream = BufferedOutputStream(FileOutputStream(thumbnailFile))
+                thumbnailBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+                outputStream.close()
+                
+                // Also save the full preview for consistency
+                val fullPreviewFile = File(context.filesDir, "pages/previews/full/$pageId")
+                Files.createDirectories(Path(fullPreviewFile.absolutePath).parent)
+                val fullOutputStream = BufferedOutputStream(FileOutputStream(fullPreviewFile))
+                fullBitmap.compress(Bitmap.CompressFormat.PNG, 100, fullOutputStream)
+                fullOutputStream.close()
+                
+                Log.d("NotebookConfig", "Successfully generated thumbnail for page $pageId")
+            } else {
+                Log.w("NotebookConfig", "Failed to render page content for $pageId")
+            }
+        } catch (e: Exception) {
+            Log.e("NotebookConfig", "Error generating thumbnail for page $pageId", e)
+        }
+    }
+}
 
 @ExperimentalComposeUiApi
 @Composable
@@ -74,6 +125,9 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
     if (book == null) return
     
     val isQuickPage = book!!.isQuickPage()
+    
+    // State to force thumbnail refresh
+    var thumbnailRefreshKey by remember { mutableStateOf(0L) }
 
     var bookTitle by remember {
         mutableStateOf(book!!.title)
@@ -87,6 +141,27 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
     LaunchedEffect(Unit) {
         if (!isQuickPage) {
             titleFocusRequester.requestFocus()
+        }
+    }
+    
+    // Generate thumbnail when dialog opens
+    LaunchedEffect(book) {
+        book?.let { notebook ->
+            Log.d("NotebookConfig", "Dialog opened for notebook: ${notebook.title}, pages: ${notebook.pageIds.size}")
+            if (notebook.pageIds.isNotEmpty()) {
+                val firstPageId = notebook.pageIds[0]
+                
+                // Check if thumbnail file exists before generating
+                val thumbnailFile = File(context.filesDir, "pages/previews/thumbs/$firstPageId")
+                Log.d("NotebookConfig", "Thumbnail exists before generation: ${thumbnailFile.exists()}")
+                
+                // Always generate fresh thumbnail when properties dialog opens
+                generatePageThumbnail(context, firstPageId)
+                
+                // Force refresh the thumbnail display by updating the refresh key
+                thumbnailRefreshKey = System.currentTimeMillis()
+                Log.d("NotebookConfig", "Thumbnail refresh key updated to: $thumbnailRefreshKey")
+            }
         }
     }
     val formattedCreatedAt =
@@ -188,7 +263,9 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(3f / 4f)
-                            .border(1.dp, Color.Black, RectangleShape), pageId
+                            .border(1.dp, Color.Black, RectangleShape), 
+                        pageId = pageId,
+                        refreshKey = thumbnailRefreshKey
                     )
                 }
                 Spacer(Modifier.width(16.dp))
