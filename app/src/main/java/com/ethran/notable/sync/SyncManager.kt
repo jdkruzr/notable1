@@ -23,6 +23,7 @@ class SyncManager(
     private val syncQueueRepository = SyncQueueRepository(context)
     private val deletionLogRepository = com.ethran.notable.db.DeletionLogRepository(context)
     private val networkMonitor = NetworkMonitor(context)
+    private val database = AppDatabase.getDatabase(context)
     
     private var webdavClient: WebDAVClient? = null
     private var deviceId: String = getOrCreateDeviceId()
@@ -723,122 +724,132 @@ class SyncManager(
     
     private suspend fun importPage(syncPageData: SyncPageData) {
         try {
-            // Create or update notebook
-            val existingNotebook = withContext(Dispatchers.IO) {
-                repository.getNotebookById(syncPageData.notebook.id)
-            }
-        if (existingNotebook == null) {
-            val notebook = Notebook(
-                id = syncPageData.notebook.id,
-                title = syncPageData.notebook.title,
-                parentFolderId = null, // Set to null to avoid foreign key constraint failures until folder sync is implemented
-                defaultNativeTemplate = syncPageData.notebook.defaultNativeTemplate,
-                pageIds = listOf(syncPageData.page.id),
-                createdAt = serializer.parseDate(syncPageData.notebook.createdAt),
-                updatedAt = serializer.parseDate(syncPageData.notebook.updatedAt)
-            )
+            Log.d(TAG, "Starting import of page ${syncPageData.page.id} with transaction boundaries")
+            
+            // Pre-download images outside of transaction to avoid holding database locks during network operations
+            val imagesWithLocalPaths = mutableListOf<Image>()
+            
             withContext(Dispatchers.IO) {
-                repository.insertNotebook(notebook)
-            }
-        } else {
-            // Update notebook if this page isn't in the page list
-            if (!existingNotebook.pageIds.contains(syncPageData.page.id)) {
-                val updatedNotebook = existingNotebook.copy(
-                    pageIds = existingNotebook.pageIds + syncPageData.page.id
-                )
-                withContext(Dispatchers.IO) {
-                    repository.updateNotebook(updatedNotebook)
-                }
-            }
-        }
-        
-        // Create or update page
-        val page = Page(
-            id = syncPageData.page.id,
-            notebookId = syncPageData.page.notebookId,
-            scroll = syncPageData.page.scroll,
-            background = syncPageData.page.background,
-            backgroundType = syncPageData.page.backgroundType,
-            createdAt = serializer.parseDate(syncPageData.page.createdAt),
-            updatedAt = serializer.parseDate(syncPageData.page.updatedAt)
-        )
-        withContext(Dispatchers.IO) {
-            repository.upsertPage(page)
-        }
-        
-        // Clear existing strokes and images for this page
-        withContext(Dispatchers.IO) {
-            repository.deleteStrokesByPageId(syncPageData.page.id)
-            repository.deleteImagesByPageId(syncPageData.page.id)
-        }
-        
-        // Import strokes
-        withContext(Dispatchers.IO) {
-            syncPageData.strokes.forEach { syncStroke ->
-                val stroke = Stroke(
-                    id = syncStroke.id,
-                    size = syncStroke.size,
-                    pen = Pen.valueOf(syncStroke.pen),
-                    color = syncStroke.color,
-                    top = syncStroke.boundingBox.top,
-                    bottom = syncStroke.boundingBox.bottom,
-                    left = syncStroke.boundingBox.left,
-                    right = syncStroke.boundingBox.right,
-                    points = syncStroke.points.map { point ->
-                        StrokePoint(
-                            x = point.x,
-                            y = point.y,
-                            pressure = point.pressure,
-                            size = point.size,
-                            tiltX = point.tiltX,
-                            tiltY = point.tiltY,
-                            timestamp = point.timestamp
-                        )
-                    },
-                    pageId = syncPageData.page.id,
-                    createdAt = serializer.parseDate(syncStroke.createdAt),
-                    updatedAt = serializer.parseDate(syncStroke.updatedAt)
-                )
-                repository.insertStroke(stroke)
-            }
-        }
-        
-        // Import images with file download
-        withContext(Dispatchers.IO) {
-            syncPageData.images.forEach { syncImage ->
-                val image = Image(
-                    id = syncImage.id,
-                    x = syncImage.position.x,
-                    y = syncImage.position.y,
-                    width = syncImage.dimensions.width,
-                    height = syncImage.dimensions.height,
-                    uri = syncImage.uri, // This will be updated with local path
-                    pageId = syncPageData.page.id,
-                    createdAt = serializer.parseDate(syncImage.createdAt),
-                    updatedAt = serializer.parseDate(syncImage.updatedAt)
-                )
-                
-                // Download image file from server
-                val client = webdavClient
-                if (client != null) {
-                    val localPath = downloadImageFile(client, image)
-                    if (localPath != null) {
-                        // Update URI to point to downloaded local file
-                        val updatedImage = image.copy(uri = localPath)
-                        repository.insertImage(updatedImage)
-                        Log.d(TAG, "Downloaded and imported image ${image.id}")
+                syncPageData.images.forEach { syncImage ->
+                    val baseImage = Image(
+                        id = syncImage.id,
+                        x = syncImage.position.x,
+                        y = syncImage.position.y,
+                        width = syncImage.dimensions.width,
+                        height = syncImage.dimensions.height,
+                        uri = syncImage.uri,
+                        pageId = syncPageData.page.id,
+                        createdAt = serializer.parseDate(syncImage.createdAt),
+                        updatedAt = serializer.parseDate(syncImage.updatedAt)
+                    )
+                    
+                    // Download image file from server (outside transaction)
+                    val client = webdavClient
+                    val finalImage = if (client != null) {
+                        val localPath = downloadImageFile(client, baseImage)
+                        if (localPath != null) {
+                            Log.d(TAG, "Pre-downloaded image ${baseImage.id} to $localPath")
+                            baseImage.copy(uri = localPath)
+                        } else {
+                            Log.w(TAG, "Failed to download image ${baseImage.id}, keeping original URI")
+                            baseImage
+                        }
                     } else {
-                        // Keep original URI even if download failed
-                        repository.insertImage(image)
-                        Log.w(TAG, "Failed to download image ${image.id}, keeping original URI")
+                        Log.w(TAG, "No WebDAV client available for image ${baseImage.id}")
+                        baseImage
                     }
-                } else {
-                    // No client available, just import metadata
-                    repository.insertImage(image)
-                    Log.w(TAG, "No WebDAV client available, importing image ${image.id} metadata only")
+                    
+                    imagesWithLocalPaths.add(finalImage)
                 }
             }
-        }
+            
+            // Now perform all database operations in a single transaction
+            withContext(Dispatchers.IO) {
+                database.runInTransaction {
+                    Log.d(TAG, "Starting database transaction for page ${syncPageData.page.id}")
+                    
+                    // 1. Create or update notebook
+                    val existingNotebook = repository.getNotebookById(syncPageData.notebook.id)
+                    if (existingNotebook == null) {
+                        val notebook = Notebook(
+                            id = syncPageData.notebook.id,
+                            title = syncPageData.notebook.title,
+                            parentFolderId = null, // Set to null to avoid foreign key constraint failures until folder sync is implemented
+                            defaultNativeTemplate = syncPageData.notebook.defaultNativeTemplate,
+                            pageIds = listOf(syncPageData.page.id),
+                            createdAt = serializer.parseDate(syncPageData.notebook.createdAt),
+                            updatedAt = serializer.parseDate(syncPageData.notebook.updatedAt)
+                        )
+                        repository.insertNotebook(notebook)
+                        Log.d(TAG, "Created new notebook ${notebook.id}")
+                    } else {
+                        // Update notebook if this page isn't in the page list
+                        if (!existingNotebook.pageIds.contains(syncPageData.page.id)) {
+                            val updatedNotebook = existingNotebook.copy(
+                                pageIds = existingNotebook.pageIds + syncPageData.page.id
+                            )
+                            repository.updateNotebook(updatedNotebook)
+                            Log.d(TAG, "Updated notebook ${updatedNotebook.id} with page ${syncPageData.page.id}")
+                        }
+                    }
+                    
+                    // 2. Create or update page
+                    val page = Page(
+                        id = syncPageData.page.id,
+                        notebookId = syncPageData.page.notebookId,
+                        scroll = syncPageData.page.scroll,
+                        background = syncPageData.page.background,
+                        backgroundType = syncPageData.page.backgroundType,
+                        createdAt = serializer.parseDate(syncPageData.page.createdAt),
+                        updatedAt = serializer.parseDate(syncPageData.page.updatedAt)
+                    )
+                    repository.upsertPage(page)
+                    Log.d(TAG, "Upserted page ${page.id}")
+                    
+                    // 3. Clear existing strokes and images for this page
+                    repository.deleteStrokesByPageId(syncPageData.page.id)
+                    repository.deleteImagesByPageId(syncPageData.page.id)
+                    Log.d(TAG, "Cleared existing strokes and images for page ${syncPageData.page.id}")
+                    
+                    // 4. Import strokes
+                    syncPageData.strokes.forEach { syncStroke ->
+                        val stroke = Stroke(
+                            id = syncStroke.id,
+                            size = syncStroke.size,
+                            pen = Pen.valueOf(syncStroke.pen),
+                            color = syncStroke.color,
+                            top = syncStroke.boundingBox.top,
+                            bottom = syncStroke.boundingBox.bottom,
+                            left = syncStroke.boundingBox.left,
+                            right = syncStroke.boundingBox.right,
+                            points = syncStroke.points.map { point ->
+                                StrokePoint(
+                                    x = point.x,
+                                    y = point.y,
+                                    pressure = point.pressure,
+                                    size = point.size,
+                                    tiltX = point.tiltX,
+                                    tiltY = point.tiltY,
+                                    timestamp = point.timestamp
+                                )
+                            },
+                            pageId = syncPageData.page.id,
+                            createdAt = serializer.parseDate(syncStroke.createdAt),
+                            updatedAt = serializer.parseDate(syncStroke.updatedAt)
+                        )
+                        repository.insertStroke(stroke)
+                    }
+                    Log.d(TAG, "Imported ${syncPageData.strokes.size} strokes for page ${syncPageData.page.id}")
+                    
+                    // 5. Import images with pre-downloaded local paths
+                    imagesWithLocalPaths.forEach { image ->
+                        repository.insertImage(image)
+                    }
+                    Log.d(TAG, "Imported ${imagesWithLocalPaths.size} images for page ${syncPageData.page.id}")
+                    
+                    Log.d(TAG, "Database transaction completed successfully for page ${syncPageData.page.id}")
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error importing page ${syncPageData.page.id}: ${e.message}", e)
             throw e
@@ -903,14 +914,18 @@ class SyncManager(
         return try {
             Log.d(TAG, "Starting replace local with server")
             
-            // Clear all local data
-            Log.d(TAG, "Clearing local data")
+            // Clear all local data in a single transaction
+            Log.d(TAG, "Clearing local data with transaction boundaries")
             withContext(Dispatchers.IO) {
-                repository.deleteAllStrokes()
-                repository.deleteAllImages()
-                repository.deleteAllPages()
-                repository.deleteAllNotebooks()
-                repository.deleteAllFolders()
+                database.runInTransaction {
+                    Log.d(TAG, "Starting database transaction to clear all local data")
+                    repository.deleteAllStrokes()
+                    repository.deleteAllImages()
+                    repository.deleteAllPages()
+                    repository.deleteAllNotebooks()
+                    repository.deleteAllFolders()
+                    Log.d(TAG, "Database transaction completed - all local data cleared")
+                }
             }
             
             // Download everything from server

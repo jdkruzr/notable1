@@ -10,8 +10,12 @@
 - This could create duplicate entries and inconsistent state
 - **Location:** `syncPage()` method lines 252-263
 
-### 2. **Missing Transaction Boundaries**
-- Database operations aren't wrapped in transactions, which could lead to partial updates if the app crashes mid-sync
+### 2. **Missing Transaction Boundaries** ✅ **FIXED**
+- ~~Database operations aren't wrapped in transactions, which could lead to partial updates if the app crashes mid-sync~~
+- **Fix:** Added `database.runInTransaction {}` around critical operations:
+  - `importPage()` now wraps all database operations in a single transaction
+  - `replaceLocalWithServer()` clears all local data atomically
+  - Network operations (image downloads) are performed outside transactions to avoid holding locks
 
 ### 3. **Weak Conflict Resolution** (SyncManager.kt:701-708)
 - Only compares `updatedAt` timestamps for conflict resolution

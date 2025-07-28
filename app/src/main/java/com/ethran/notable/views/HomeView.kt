@@ -329,7 +329,7 @@ fun Library(navController: NavController, folderId: String? = null) {
                                         appRepository.insertNotebook(notebook)
                                         appRepository.pageRepository.create(page)
                                     }
-                                    navController.navigate("pages/${page.id}")
+                                    navController.navigate("books/$notebookId/pages/${page.id}")
                                 }
                             }
                     ) {
@@ -348,12 +348,13 @@ fun Library(navController: NavController, folderId: String? = null) {
                         val pageId = quickPageNotebook.pageIds.firstOrNull()
                         if (pageId != null) {
                             var isPageSelected by remember { mutableStateOf(false) }
+                            var isQuickPagePropertiesOpen by remember { mutableStateOf(false) }
                             Box {
                                 PagePreview(
                                     modifier = Modifier
                                         .combinedClickable(
                                             onClick = {
-                                                navController.navigate("pages/$pageId")
+                                                navController.navigate("books/${quickPageNotebook.id}/pages/$pageId")
                                             },
                                             onLongClick = {
                                                 isPageSelected = true
@@ -368,7 +369,19 @@ fun Library(navController: NavController, folderId: String? = null) {
                                     notebookId = quickPageNotebook.id,
                                     pageId = pageId,
                                     canDelete = true,
+                                    onShowProperties = { 
+                                        isQuickPagePropertiesOpen = true
+                                        isPageSelected = false
+                                    },
                                     onClose = { isPageSelected = false })
+                            }
+                            
+                            // Quick Page properties dialog
+                            if (isQuickPagePropertiesOpen) {
+                                NotebookConfigDialog(
+                                    bookId = quickPageNotebook.id,
+                                    onClose = { isQuickPagePropertiesOpen = false }
+                                )
                             }
                         }
                     }

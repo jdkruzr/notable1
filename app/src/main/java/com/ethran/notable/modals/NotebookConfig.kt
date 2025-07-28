@@ -72,6 +72,8 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
     val snackManager = LocalSnackContext.current
 
     if (book == null) return
+    
+    val isQuickPage = book!!.isQuickPage()
 
     var bookTitle by remember {
         mutableStateOf(book!!.title)
@@ -81,9 +83,11 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
     }
     val titleFocusRequester = remember { FocusRequester() }
     
-    // Request focus on title field when dialog opens
+    // Request focus on title field when dialog opens (only for regular notebooks)
     LaunchedEffect(Unit) {
-        titleFocusRequester.requestFocus()
+        if (!isQuickPage) {
+            titleFocusRequester.requestFocus()
+        }
     }
     val formattedCreatedAt =
         remember { android.text.format.DateFormat.format("dd MMM yyyy HH:mm", book!!.createdAt) }
@@ -191,36 +195,48 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Row {
-                        Text(
-                            text = "Title:",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 24.sp
-                        )
-                        Spacer(Modifier.width(20.dp))
-                        BasicTextField(
-                            value = bookTitle,
-                            textStyle = TextStyle(
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Light,
+                    if (!isQuickPage) {
+                        Row {
+                            Text(
+                                text = "Title:",
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 24.sp
-                            ),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Text,
-                                imeAction = androidx.compose.ui.text.input.ImeAction.Done
-                            ),
-                            onValueChange = { bookTitle = it },
-                            keyboardActions = KeyboardActions(onDone = {
-                                focusManager.clearFocus()
-                            }),
-                            modifier = Modifier
-                                .focusRequester(titleFocusRequester)
-                                .background(Color(230, 230, 230, 255))
-                                .padding(10.dp, 0.dp)
+                            )
+                            Spacer(Modifier.width(20.dp))
+                            BasicTextField(
+                                value = bookTitle,
+                                textStyle = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Light,
+                                    fontSize = 24.sp
+                                ),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Text,
+                                    imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                                ),
+                                onValueChange = { bookTitle = it },
+                                keyboardActions = KeyboardActions(onDone = {
+                                    focusManager.clearFocus()
+                                }),
+                                modifier = Modifier
+                                    .focusRequester(titleFocusRequester)
+                                    .background(Color(230, 230, 230, 255))
+                                    .padding(10.dp, 0.dp)
 
 
-                        )
+                            )
+                        }
+                    } else {
+                        // For Quick Pages, show "Quick Page" as read-only title
+                        Row {
+                            Text(
+                                text = "Title: Quick Page",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 24.sp,
+                                color = Color.Gray
+                            )
+                        }
                     }
                     
                     Spacer(modifier = Modifier.height(16.dp))

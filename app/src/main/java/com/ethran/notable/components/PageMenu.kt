@@ -29,6 +29,7 @@ fun PageMenu(
     pageId: String,
     index: Int? = null,
     canDelete: Boolean,
+    onShowProperties: (() -> Unit)? = null,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -97,6 +98,19 @@ fun PageMenu(
                     }) {
                 Text("Duplicate")
             }
+            
+            // Properties option (for Quick Pages)
+            if (onShowProperties != null) {
+                Box(
+                    Modifier
+                        .padding(10.dp)
+                        .noRippleClickable {
+                            onShowProperties()
+                        }) {
+                    Text("Properties")
+                }
+            }
+            
             if (canDelete) {
                 Box(
                     Modifier

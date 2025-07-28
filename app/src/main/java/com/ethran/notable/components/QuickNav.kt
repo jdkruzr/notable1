@@ -127,11 +127,14 @@ fun QuickNav(navController: NavController, onClose: () -> Unit) {
                                         .fillMaxWidth()
                                         .aspectRatio(3f / 4f)
                                         .noRippleClickable {
-                                            val bookId =
-                                                appRepository.pageRepository.getById(thisPageId)?.notebookId
-                                            val url =
-                                                if (bookId == null) "pages/${thisPageId}" else "books/${bookId}/pages/${thisPageId}"
-                                            navController.navigate(url)
+                                            val page = appRepository.pageRepository.getById(thisPageId)
+                                            val bookId = page?.notebookId
+                                            if (bookId != null) {
+                                                navController.navigate("books/${bookId}/pages/${thisPageId}")
+                                            } else {
+                                                // Fallback for pages without notebook (shouldn't happen after migration)
+                                                navController.navigate("pages/${thisPageId}")
+                                            }
                                             onClose()
                                         }
                                         .draggable(
