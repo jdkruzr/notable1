@@ -51,6 +51,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -77,36 +79,56 @@ fun convertDpToPixel(dp: Dp, context: Context): Float {
 // TODO move this to repository
 fun deletePage(context: Context, pageId: String) {
     val appRepository = AppRepository(context)
-    val page = appRepository.pageRepository.getById(pageId) ?: return
-    val proxy = appRepository.kvProxy
-    val settings = proxy.get(APP_SETTINGS_KEY, AppSettings.serializer())
-
-
+    
     runBlocking {
-        // remove from book
-        if (page.notebookId != null) {
-            appRepository.bookRepository.removePage(page.notebookId, pageId)
+        val page = withContext(Dispatchers.IO) {
+            appRepository.pageRepository.getById(pageId)
+        } ?: return@runBlocking
+        
+        val proxy = appRepository.kvProxy
+        val settings = withContext(Dispatchers.IO) {
+            proxy.get(APP_SETTINGS_KEY, AppSettings.serializer())
+        }
+
+        // Remove from notebook (all pages now have notebookId after migration)
+        page.notebookId?.let { notebookId ->
+            withContext(Dispatchers.IO) {
+                appRepository.bookRepository.removePage(notebookId, pageId)
+            }
         }
 
         // remove from quick nav
         if (settings != null && settings.quickNavPages.contains(pageId)) {
-            proxy.setKv(
-                APP_SETTINGS_KEY,
-                settings.copy(quickNavPages = settings.quickNavPages - pageId),
-                AppSettings.serializer()
-            )
+            withContext(Dispatchers.IO) {
+                proxy.setKv(
+                    APP_SETTINGS_KEY,
+                    settings.copy(quickNavPages = settings.quickNavPages - pageId),
+                    AppSettings.serializer()
+                )
+            }
         }
 
-        launch {
-            appRepository.pageRepository.delete(pageId)
+        withContext(Dispatchers.IO) {
+            // Check if sync is enabled and use logging deletion if so
+            val prefs = context.getSharedPreferences("sync_settings", Context.MODE_PRIVATE)
+            val syncEnabled = prefs.getBoolean("sync_enabled", false)
+            
+            if (syncEnabled) {
+                val deviceId = prefs.getString("device_id", null) ?: java.util.UUID.randomUUID().toString()
+                Log.d("PageDeletion", "Logging deletion of page $pageId for sync (device: $deviceId)")
+                appRepository.pageRepository.deleteWithLogging(pageId, deviceId)
+            } else {
+                Log.d("PageDeletion", "Deleting page $pageId without sync logging (sync disabled)")
+                appRepository.pageRepository.delete(pageId)
+            }
         }
-        launch {
+        withContext(Dispatchers.IO) {
             val imgFile = File(context.filesDir, "pages/previews/thumbs/$pageId")
             if (imgFile.exists()) {
                 imgFile.delete()
             }
         }
-        launch {
+        withContext(Dispatchers.IO) {
             val imgFile = File(context.filesDir, "pages/previews/full/$pageId")
             if (imgFile.exists()) {
                 imgFile.delete()

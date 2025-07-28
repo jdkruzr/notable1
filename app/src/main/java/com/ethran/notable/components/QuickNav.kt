@@ -23,6 +23,10 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -40,6 +44,7 @@ import compose.icons.feathericons.Plus
 fun QuickNav(navController: NavController, onClose: () -> Unit) {
     val context = LocalContext.current
     val appRepository = AppRepository(context)
+    val scope = rememberCoroutineScope()
 
     val currentBackStackEntry = navController.currentBackStackEntry
     val pageId = currentBackStackEntry?.arguments?.getString("pageId")
@@ -95,7 +100,11 @@ fun QuickNav(navController: NavController, onClose: () -> Unit) {
                         imageVector = FeatherIcons.Plus, onSelect = {
                             if (settings == null) return@ToolbarButton
                             if (settings!!.quickNavPages.contains(pageId)) return@ToolbarButton
-                            kv.setAppSettings(settings!!.copy(quickNavPages = pages + pageId))
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    kv.setAppSettings(settings!!.copy(quickNavPages = pages + pageId))
+                                }
+                            }
                         })
                 }
             }
@@ -129,7 +138,11 @@ fun QuickNav(navController: NavController, onClose: () -> Unit) {
                                             orientation = Orientation.Vertical,
                                             onDragStopped = {
                                                 if (settings == null) return@draggable
-                                                kv.setAppSettings(settings!!.copy(quickNavPages = pages.filterNot { it == thisPageId }))
+                                                scope.launch {
+                                                    withContext(Dispatchers.IO) {
+                                                        kv.setAppSettings(settings!!.copy(quickNavPages = pages.filterNot { it == thisPageId }))
+                                                    }
+                                                }
                                             },
                                             state = rememberDraggableState(onDelta = {})
                                         ), pageId = thisPageId

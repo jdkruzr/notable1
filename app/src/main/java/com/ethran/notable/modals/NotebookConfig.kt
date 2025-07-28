@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
@@ -29,6 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -38,9 +41,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.ethran.notable.utils.noRippleClickable
 import com.ethran.notable.TAG
 import com.ethran.notable.classes.LocalSnackContext
 import com.ethran.notable.classes.SnackConf
@@ -70,6 +75,15 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
 
     var bookTitle by remember {
         mutableStateOf(book!!.title)
+    }
+    var selectedTemplate by remember {
+        mutableStateOf(book!!.defaultNativeTemplate)
+    }
+    val titleFocusRequester = remember { FocusRequester() }
+    
+    // Request focus on title field when dialog opens
+    LaunchedEffect(Unit) {
+        titleFocusRequester.requestFocus()
     }
     val formattedCreatedAt =
         remember { android.text.format.DateFormat.format("dd MMM yyyy HH:mm", book!!.createdAt) }
@@ -201,27 +215,63 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
                                 focusManager.clearFocus()
                             }),
                             modifier = Modifier
+                                .focusRequester(titleFocusRequester)
                                 .background(Color(230, 230, 230, 255))
                                 .padding(10.dp, 0.dp)
-                                .onFocusChanged { focusState ->
-                                    if (!focusState.isFocused) {
-                                        Log.i(TAG, "loose focus")
-                                        if (book!!.title != bookTitle) {
-                                            scope.launch {
-                                                val updatedBook = book!!.copy(title = bookTitle)
-                                                withContext(Dispatchers.IO) {
-                                                    bookRepository.update(updatedBook)
-                                                }
-                                                // Force UI refresh by updating the local state
-                                                // LiveData should pick up the change but this ensures it
-                                            }
-                                        }
-                                    }
-                                }
 
 
                         )
                     }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // Action buttons for title changes
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        // Cancel button
+                        Box(
+                            modifier = Modifier
+                                .size(100.dp, 40.dp)
+                                .background(Color.LightGray, RectangleShape)
+                                .border(1.dp, Color.Black, RectangleShape)
+                                .clickable {
+                                    // Reset to original values and close dialog
+                                    bookTitle = book!!.title
+                                    selectedTemplate = book!!.defaultNativeTemplate
+                                    onClose()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Cancel", fontWeight = FontWeight.Bold)
+                        }
+                        
+                        // Save button
+                        Box(
+                            modifier = Modifier
+                                .size(100.dp, 40.dp)
+                                .background(Color.LightGray, RectangleShape)
+                                .border(1.dp, Color.Black, RectangleShape)
+                                .clickable {
+                                    scope.launch {
+                                        val updatedBook = book!!.copy(
+                                            title = bookTitle,
+                                            defaultNativeTemplate = selectedTemplate
+                                        )
+                                        withContext(Dispatchers.IO) {
+                                            bookRepository.update(updatedBook)
+                                        }
+                                        onClose()
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Save", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Row {
                         Text(text = "Default Background Template")
@@ -235,18 +285,8 @@ fun NotebookConfigDialog(bookId: String, onClose: () -> Unit) {
                                 "squared" to "Small squares grid",
                                 "hexed" to "Hexagon grid",
                             ),
-                            onChange = {
-                                if (book!!.defaultNativeTemplate != it) {
-                                    val updatedBook = book!!.copy(defaultNativeTemplate = it)
-                                    scope.launch {
-                                        withContext(Dispatchers.IO) {
-                                            bookRepository.update(updatedBook)
-                                        }
-                                    }
-                                }
-                            },
-                            // this once thrown null ptr exception, when deleting notebook.
-                            value = book!!.defaultNativeTemplate
+                            onChange = { selectedTemplate = it },
+                            value = selectedTemplate
                         )
 
                     }

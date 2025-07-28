@@ -44,6 +44,9 @@ data class AppSettings(
     val webdavAutoSync: Boolean = true,
     val webdavSyncInterval: Int = 300, // seconds
     val webdavAutoSyncOnClose: Boolean = true, // Auto-sync when closing notebooks
+    
+    // Notebook creation settings
+    val prefixNotebookNamesWithDate: Boolean = false,
 
     val doubleTapAction: GestureAction? = defaultDoubleTapAction,
     val twoFingerTapAction: GestureAction? = defaultTwoFingerTapAction,

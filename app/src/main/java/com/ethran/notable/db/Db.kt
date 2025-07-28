@@ -34,6 +34,16 @@ class Converters {
     fun dateToTimestamp(date: Date?): Long? {
         return date?.time
     }
+    
+    @TypeConverter
+    fun fromDeletionType(value: DeletionType): String {
+        return value.name
+    }
+    
+    @TypeConverter
+    fun toDeletionType(value: String): DeletionType {
+        return DeletionType.valueOf(value)
+    }
 }
 
 // Manual migration from 30 to 32 (skipping 31 to avoid auto-migration issues)
@@ -178,9 +188,93 @@ val MIGRATION_32_33 = object : Migration(32, 33) {
     }
 }
 
+// Migration from 33 to 34 - Add DeletionLog table
+val MIGRATION_33_34 = object : Migration(33, 34) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        // Ensure SyncQueueEntry table exists with correct schema
+        // This handles cases where the table might be corrupted or missing
+        database.execSQL("DROP TABLE IF EXISTS SyncQueueEntry")
+        database.execSQL("""
+            CREATE TABLE SyncQueueEntry (
+                id TEXT PRIMARY KEY NOT NULL,
+                operation TEXT NOT NULL,
+                targetId TEXT NOT NULL,
+                targetType TEXT NOT NULL,
+                retryCount INTEGER NOT NULL DEFAULT 0,
+                maxRetries INTEGER NOT NULL DEFAULT 5,
+                jsonData TEXT,
+                errorMessage TEXT,
+                createdAt INTEGER NOT NULL,
+                lastAttemptAt INTEGER,
+                nextRetryAt INTEGER
+            )
+        """.trimIndent())
+        
+        // Add DeletionLog table
+        database.execSQL("""
+            CREATE TABLE DeletionLog (
+                id TEXT PRIMARY KEY NOT NULL,
+                deletedItemId TEXT NOT NULL,
+                deletedItemType TEXT NOT NULL,
+                deletedAt INTEGER NOT NULL,
+                syncedAt INTEGER,
+                deviceId TEXT NOT NULL
+            )
+        """.trimIndent())
+        
+        android.util.Log.d("Migration", "Migration 33->34: Recreated SyncQueueEntry and added DeletionLog table")
+    }
+}
+
+// Migration from 34 to 35 - Convert Quick Pages to single-page notebooks
+val MIGRATION_34_35 = object : Migration(34, 35) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        android.util.Log.d("Migration", "Migration 34->35: Converting Quick Pages to single-page notebooks")
+        
+        // Find all Quick Pages (pages with notebookId = null)
+        val cursor = database.query("SELECT id, parentFolderId, background, backgroundType, scroll, createdAt, updatedAt FROM Page WHERE notebookId IS NULL")
+        
+        var convertedCount = 0
+        while (cursor.moveToNext()) {
+            val pageId = cursor.getString(0)
+            val parentFolderId = cursor.getString(1)
+            val background = cursor.getString(2) ?: "blank"
+            val backgroundType = cursor.getString(3) ?: "native"
+            val scroll = cursor.getInt(4)
+            val createdAt = cursor.getLong(5)
+            val updatedAt = cursor.getLong(6)
+            
+            val notebookId = "__quickpage_${pageId}__"
+            
+            // Create notebook for this Quick Page
+            database.execSQL("""
+                INSERT INTO Notebook (id, title, openPageId, pageIds, parentFolderId, defaultNativeTemplate, createdAt, updatedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, arrayOf(
+                notebookId,
+                "Quick Page",
+                pageId, // Set as the open page
+                "[\"$pageId\"]", // JSON array with single page ID
+                parentFolderId,
+                background, // Use the page's background as the notebook's default template
+                createdAt,
+                updatedAt
+            ))
+            
+            // Update page to reference the notebook
+            database.execSQL("UPDATE Page SET notebookId = ? WHERE id = ?", arrayOf(notebookId, pageId))
+            
+            convertedCount++
+        }
+        cursor.close()
+        
+        android.util.Log.d("Migration", "Migration 34->35: Converted $convertedCount Quick Pages to single-page notebooks")
+    }
+}
+
 @Database(
-    entities = [Folder::class, Notebook::class, Page::class, Stroke::class, Image::class, Kv::class, SyncQueueEntry::class],
-    version = 33,
+    entities = [Folder::class, Notebook::class, Page::class, Stroke::class, Image::class, Kv::class, SyncQueueEntry::class, DeletionLog::class],
+    version = 35,
     autoMigrations = [
         AutoMigration(19, 20),
         AutoMigration(20, 21),
@@ -208,6 +302,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun strokeDao(): StrokeDao
     abstract fun ImageDao(): ImageDao
     abstract fun syncQueueDao(): SyncQueueDao
+    abstract fun deletionLogDao(): DeletionLogDao
 
     companion object {
         private var INSTANCE: AppDatabase? = null
@@ -222,7 +317,7 @@ abstract class AppDatabase : RoomDatabase() {
                     INSTANCE =
                         Room.databaseBuilder(context, AppDatabase::class.java, dbFile.absolutePath)
                             // .allowMainThreadQueries() // REMOVED: This was causing ANRs and performance issues
-                            .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_22_23, MIGRATION_30_32, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_32)
+                            .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_22_23, MIGRATION_30_32, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_32, MIGRATION_33_34, MIGRATION_34_35)
                             .build()
 
                 }

@@ -38,7 +38,12 @@ data class Notebook(
 
     val createdAt: Date = Date(),
     val updatedAt: Date = Date()
-)
+) {
+    /**
+     * Check if this notebook represents a Quick Page (converted from standalone page)
+     */
+    fun isQuickPage(): Boolean = id.startsWith("__quickpage_")
+}
 
 // DAO
 @Dao
@@ -77,6 +82,7 @@ interface NotebookDao {
 class BookRepository(context: Context) {
     var db = AppDatabase.getDatabase(context).notebookDao()
     private var pageDb = AppDatabase.getDatabase(context).pageDao()
+    private var deletionLogDb = AppDatabase.getDatabase(context).deletionLogDao()
 
     fun create(notebook: Notebook) {
         db.create(notebook)
@@ -155,6 +161,19 @@ class BookRepository(context: Context) {
     }
 
     fun delete(id: String) {
+        db.delete(id)
+    }
+    
+    fun deleteWithLogging(id: String, deviceId: String) {
+        // Log the deletion before actually deleting
+        val deletionLog = DeletionLog(
+            deletedItemId = id,
+            deletedItemType = DeletionType.NOTEBOOK,
+            deviceId = deviceId
+        )
+        deletionLogDb.logDeletion(deletionLog)
+        
+        // Now delete the notebook
         db.delete(id)
     }
 

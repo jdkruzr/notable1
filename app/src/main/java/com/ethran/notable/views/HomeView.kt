@@ -93,6 +93,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.concurrent.thread
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @ExperimentalFoundationApi
 @ExperimentalComposeUiApi
@@ -105,11 +108,17 @@ fun Library(navController: NavController, folderId: String? = null) {
 
     val appRepository = AppRepository(LocalContext.current)
 
-    val books by appRepository.bookRepository.getAllInFolder(folderId).observeAsState()
-    val singlePages by appRepository.pageRepository.getSinglePagesInFolder(folderId)
-        .observeAsState()
+    val allBooks by appRepository.bookRepository.getAllInFolder(folderId).observeAsState()
     val folders by appRepository.folderRepository.getAllInFolder(folderId).observeAsState()
+    
+    // Separate regular notebooks from Quick Pages
+    val books = allBooks?.filter { !it.isQuickPage() }
+    val quickPages = allBooks?.filter { it.isQuickPage() }
     val bookRepository = BookRepository(LocalContext.current)
+    
+    // State for new notebook creation and properties dialog
+    var newlyCreatedNotebookId by remember { mutableStateOf<String?>(null) }
+    var showNotebookProperties by remember { mutableStateOf(false) }
 
     var isLatestVersion by remember {
         mutableStateOf(true)
@@ -131,7 +140,6 @@ fun Library(navController: NavController, folderId: String? = null) {
     // ensure scrolling is done in animation mode.
     val lazyGridStateNotebooks = rememberLazyGridState()
     val lazyListStateFolders = rememberLazyListState()
-    val lazyListStateQuickPages = rememberLazyListState()
     var isScrolling by remember { mutableStateOf(false) }
     var scrollJob by remember { mutableStateOf<Job?>(null) }
     fun handleAnimations(scope: CoroutineScope, scrolling: Boolean){
@@ -155,10 +163,6 @@ fun Library(navController: NavController, folderId: String? = null) {
                 handleAnimations(this, scrolling)
             }
         snapshotFlow { lazyListStateFolders.isScrollInProgress }
-            .collect { scrolling ->
-                handleAnimations(this, scrolling)
-            }
-        snapshotFlow { lazyListStateQuickPages.isScrollInProgress }
             .collect { scrolling ->
                 handleAnimations(this, scrolling)
             }
@@ -289,7 +293,6 @@ fun Library(navController: NavController, folderId: String? = null) {
             Spacer(Modifier.height(10.dp))
 
             LazyRow(
-                state = lazyListStateQuickPages,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -303,12 +306,27 @@ fun Library(navController: NavController, folderId: String? = null) {
                             .border(1.dp, Color.Gray, RectangleShape)
                             .noRippleClickable {
                                 scope.launch {
+                                    // Create Quick Page as single-page notebook
+                                    val pageId = java.util.UUID.randomUUID().toString()
+                                    val notebookId = "__quickpage_${pageId}__"
+                                    
+                                    val notebook = com.ethran.notable.db.Notebook(
+                                        id = notebookId,
+                                        title = "Quick Page",
+                                        pageIds = listOf(pageId),
+                                        parentFolderId = folderId,
+                                        defaultNativeTemplate = GlobalAppSettings.current.defaultNativeTemplate
+                                    )
+                                    
                                     val page = Page(
-                                        notebookId = null,
+                                        id = pageId,
+                                        notebookId = notebookId,
                                         background = GlobalAppSettings.current.defaultNativeTemplate,
                                         parentFolderId = folderId
                                     )
+                                    
                                     withContext(Dispatchers.IO) {
+                                        appRepository.insertNotebook(notebook)
                                         appRepository.pageRepository.create(page)
                                     }
                                     navController.navigate("pages/${page.id}")
@@ -323,31 +341,35 @@ fun Library(navController: NavController, folderId: String? = null) {
                         )
                     }
                 }
-                // Render existing pages
-                if (singlePages?.isNotEmpty() == true) {
-                    items(singlePages!!.reversed()) { page ->
-                        val pageId = page.id
-                        var isPageSelected by remember { mutableStateOf(false) }
-                        Box {
-                            PagePreview(
-                                modifier = Modifier
-                                    .combinedClickable(
-                                        onClick = {
-                                            navController.navigate("pages/$pageId")
-                                        },
-                                        onLongClick = {
-                                            isPageSelected = true
-                                        },
-                                    )
-                                    .width(100.dp)
-                                    .aspectRatio(3f / 4f)
-                                    .border(1.dp, Color.Black, RectangleShape),
-                                pageId = pageId
-                            )
-                            if (isPageSelected) PageMenu(
-                                pageId = pageId,
-                                canDelete = true,
-                                onClose = { isPageSelected = false })
+                
+                // Display existing Quick Pages
+                if (quickPages?.isNotEmpty() == true) {
+                    items(quickPages!!.reversed()) { quickPageNotebook ->
+                        val pageId = quickPageNotebook.pageIds.firstOrNull()
+                        if (pageId != null) {
+                            var isPageSelected by remember { mutableStateOf(false) }
+                            Box {
+                                PagePreview(
+                                    modifier = Modifier
+                                        .combinedClickable(
+                                            onClick = {
+                                                navController.navigate("pages/$pageId")
+                                            },
+                                            onLongClick = {
+                                                isPageSelected = true
+                                            },
+                                        )
+                                        .width(100.dp)
+                                        .aspectRatio(3f / 4f)
+                                        .border(1.dp, Color.Black, RectangleShape),
+                                    pageId = pageId
+                                )
+                                if (isPageSelected) PageMenu(
+                                    notebookId = quickPageNotebook.id,
+                                    pageId = pageId,
+                                    canDelete = true,
+                                    onClose = { isPageSelected = false })
+                            }
                         }
                     }
                 }
@@ -381,14 +403,27 @@ fun Library(navController: NavController, folderId: String? = null) {
                                     .background(Color.LightGray.copy(alpha = 0.3f))
                                     .noRippleClickable {
                                         scope.launch {
-                                            withContext(Dispatchers.IO) {
-                                                appRepository.bookRepository.create(
-                                                    Notebook(
-                                                        parentFolderId = folderId,
-                                                        defaultNativeTemplate = GlobalAppSettings.current.defaultNativeTemplate
-                                                    )
-                                                )
+                                            val settings = GlobalAppSettings.current
+                                            val defaultTitle = if (settings.prefixNotebookNamesWithDate) {
+                                                val dateFormat = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.getDefault())
+                                                "${dateFormat.format(java.util.Date())} New notebook"
+                                            } else {
+                                                "New notebook"
                                             }
+                                            
+                                            val newNotebook = Notebook(
+                                                title = defaultTitle,
+                                                parentFolderId = folderId,
+                                                defaultNativeTemplate = settings.defaultNativeTemplate
+                                            )
+                                            
+                                            withContext(Dispatchers.IO) {
+                                                appRepository.bookRepository.create(newNotebook)
+                                            }
+                                            
+                                            // Open properties dialog immediately
+                                            newlyCreatedNotebookId = newNotebook.id
+                                            showNotebookProperties = true
                                         }
                                     }
                                     .border(2.dp, Color.Black, RectangleShape)
@@ -478,7 +513,17 @@ fun Library(navController: NavController, folderId: String? = null) {
                                     title = "There is a book without pages!!!",
                                     message = "We suggest deleting book title \"${item.title}\", it was created at ${item.createdAt}. Do you want to do it?",
                                     onConfirm = {
-                                        bookRepository.delete(item.id)
+                                        // Get device ID for deletion logging
+                                        val prefs = context.getSharedPreferences("sync_settings", Context.MODE_PRIVATE)
+                                        val deviceId = prefs.getString("device_id", null) ?: java.util.UUID.randomUUID().toString()
+                                        
+                                        // Use logging deletion method if sync is enabled
+                                        val syncEnabled = prefs.getBoolean("sync_enabled", false)
+                                        if (syncEnabled) {
+                                            bookRepository.deleteWithLogging(item.id, deviceId)
+                                        } else {
+                                            bookRepository.delete(item.id)
+                                        }
                                     },
                                     onCancel = { }
                                 )
@@ -548,6 +593,17 @@ fun Library(navController: NavController, folderId: String? = null) {
             onDismissRequest = {
                 showFloatingEditor = false
                 floatingEditorPageId = null
+            }
+        )
+    }
+    
+    // Notebook properties dialog for newly created notebooks
+    if (showNotebookProperties && newlyCreatedNotebookId != null) {
+        NotebookConfigDialog(
+            bookId = newlyCreatedNotebookId!!,
+            onClose = {
+                showNotebookProperties = false
+                newlyCreatedNotebookId = null
             }
         )
     }

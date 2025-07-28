@@ -415,7 +415,32 @@ class PageView(
     private fun saveStrokesToPersistLayer(strokes: List<Stroke>) {
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
-                dbStrokes.create(strokes)
+                try {
+                    dbStrokes.create(strokes)
+                    log.d("Successfully created ${strokes.size} strokes")
+                } catch (e: Exception) {
+                    // If create fails due to existing strokes, try individual upsert
+                    log.w("Batch stroke create failed (${e.message}), attempting individual upsert")
+                    strokes.forEach { stroke ->
+                        try {
+                            // Check if stroke exists by trying to get it
+                            val existingStrokes = dbStrokes.getAllByPageId(stroke.pageId)
+                            val exists = existingStrokes.any { it.id == stroke.id }
+                            
+                            if (exists) {
+                                // Stroke exists, update it
+                                dbStrokes.update(stroke)
+                                log.d("Updated existing stroke ${stroke.id}")
+                            } else {
+                                // Stroke doesn't exist, create it
+                                dbStrokes.create(stroke)
+                                log.d("Created new stroke ${stroke.id}")
+                            }
+                        } catch (individualEx: Exception) {
+                            log.e("Failed to save individual stroke ${stroke.id}: ${individualEx.message}")
+                        }
+                    }
+                }
             }
         }
     }
@@ -423,7 +448,32 @@ class PageView(
     private fun saveImagesToPersistLayer(image: List<Image>) {
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
-                dbImages.create(image)
+                try {
+                    dbImages.create(image)
+                    log.d("Successfully created ${image.size} images")
+                } catch (e: Exception) {
+                    // If create fails due to existing images, try individual upsert
+                    log.w("Batch create failed (${e.message}), attempting individual upsert")
+                    image.forEach { img ->
+                        try {
+                            // Check if image exists by trying to get it
+                            val existingImages = dbImages.getAllByPageId(img.pageId)
+                            val exists = existingImages.any { it.id == img.id }
+                            
+                            if (exists) {
+                                // Image exists, update it
+                                dbImages.update(img)
+                                log.d("Updated existing image ${img.id}")
+                            } else {
+                                // Image doesn't exist, create it
+                                dbImages.create(img)
+                                log.d("Created new image ${img.id}")
+                            }
+                        } catch (individualEx: Exception) {
+                            log.e("Failed to save individual image ${img.id}: ${individualEx.message}")
+                        }
+                    }
+                }
             }
         }
     }
@@ -456,6 +506,44 @@ class PageView(
         updatePageTimestamp()
 
         persistBitmapDebounced()
+    }
+    
+    fun updateImages(imagesToUpdate: List<Image>) {
+        // Update images in memory
+        val imageMap = imagesToUpdate.associateBy { it.id }
+        images = images.map { existing ->
+            imageMap[existing.id] ?: existing
+        }
+        
+        // Update height calculation
+        imagesToUpdate.forEach {
+            val bottomPlusPadding = it.x + it.height + 50
+            if (bottomPlusPadding > height) height = bottomPlusPadding
+        }
+        
+        // Update in database
+        updateImagesPersistLayer(imagesToUpdate)
+        PageDataManager.indexImages(coroutineScope, id)
+        
+        // Update page timestamp for sync
+        updatePageTimestamp()
+
+        persistBitmapDebounced()
+    }
+    
+    private fun updateImagesPersistLayer(images: List<Image>) {
+        coroutineScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    images.forEach { img ->
+                        dbImages.update(img)
+                        log.d("Updated image position ${img.id}")
+                    }
+                } catch (e: Exception) {
+                    log.e("Failed to update images: ${e.message}")
+                }
+            }
+        }
     }
 
     fun removeImages(imageIds: List<String>) {

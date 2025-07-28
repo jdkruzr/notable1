@@ -2,6 +2,7 @@ package com.ethran.notable.classes
 
 import android.content.Context
 import com.ethran.notable.db.BookRepository
+import com.ethran.notable.db.DeletionLogRepository
 import com.ethran.notable.db.FolderRepository
 import com.ethran.notable.db.ImageRepository
 import com.ethran.notable.db.KvProxy
@@ -25,6 +26,7 @@ class AppRepository(context: Context) {
     val folderRepository = FolderRepository(context)
     val kvRepository = KvRepository(context)
     val kvProxy = KvProxy(context)
+    val deletionLogRepository = DeletionLogRepository(context)
 
     suspend fun getNextPageIdFromBookAndPageOrCreate(
         notebookId: String,

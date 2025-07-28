@@ -10,7 +10,7 @@ object SyncLogger {
     private val _logs = MutableStateFlow<List<SyncLogEntry>>(emptyList())
     val logs: StateFlow<List<SyncLogEntry>> = _logs.asStateFlow()
     
-    private val maxLogEntries = 100
+    private val maxLogEntries = 50
     private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     
     fun log(level: LogLevel, message: String, source: String = "SyncManager") {

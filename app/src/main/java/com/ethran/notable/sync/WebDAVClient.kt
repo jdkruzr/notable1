@@ -27,6 +27,7 @@ class WebDAVClient(
         // Use constructor that accepts custom OkHttpClient (available in sardineandroid 0.8+)
         OkHttpSardine(customClient).apply {
             setCredentials(username, password)
+            android.util.Log.d("WebDAVClient", "Credentials set for user: '$username', password length: ${password.length}")
             android.util.Log.d("WebDAVClient", "Custom timeouts configured successfully via constructor")
         }
     }
@@ -282,8 +283,17 @@ class WebDAVClient(
     suspend fun testConnection(): Boolean = withContext(Dispatchers.IO) {
         try {
             android.util.Log.d("WebDAVClient", "Testing connection to: $baseUrl")
-            val result = sardine.exists(baseUrl)
-            android.util.Log.d("WebDAVClient", "Connection test result: $result")
+            android.util.Log.d("WebDAVClient", "Also testing sync path: $syncPath")
+            
+            // Test both base URL and sync path
+            val baseExists = sardine.exists(baseUrl)
+            android.util.Log.d("WebDAVClient", "Base URL exists: $baseExists")
+            
+            val syncPathExists = sardine.exists(syncPath)
+            android.util.Log.d("WebDAVClient", "Sync path exists: $syncPathExists")
+            
+            val result = baseExists && syncPathExists
+            android.util.Log.d("WebDAVClient", "Overall connection test result: $result")
             result
         } catch (e: Exception) {
             android.util.Log.e("WebDAVClient", "Connection test failed: ${e.message}", e)

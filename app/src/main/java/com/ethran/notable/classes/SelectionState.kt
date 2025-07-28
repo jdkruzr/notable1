@@ -202,10 +202,13 @@ class SelectionState {
             val displacedImages = selectedImagesCopy.map {
                 offsetImage(it, offset = offset.toOffset())
             }
-            if (placementMode == PlacementMode.Move)
-                page.removeImages(selectedImagesCopy.map { it.id })
-
-            page.addImage(displacedImages)
+            if (placementMode == PlacementMode.Move) {
+                // For move operations, use update instead of remove+add to avoid ID conflicts
+                page.updateImages(displacedImages)
+            } else {
+                // For paste operations (copy/duplicate), add new images with new IDs
+                page.addImage(displacedImages)
+            }
 
             if (offset.x != 0 || offset.y != 0) {
                 // TODO: find why sometimes we add two times same operation.

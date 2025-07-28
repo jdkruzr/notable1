@@ -66,20 +66,6 @@ class SyncQueueRepository(context: Context) {
         insertEntry(entry)
     }
     
-    suspend fun queueStandalonePageUpload(pageId: String, jsonData: String) {
-        deleteEntriesForTarget(pageId, SyncOperation.UPLOAD_STANDALONE_PAGE)
-        
-        val entry = SyncQueueEntry(
-            id = "${SyncOperation.UPLOAD_STANDALONE_PAGE}_${pageId}_${System.currentTimeMillis()}",
-            operation = SyncOperation.UPLOAD_STANDALONE_PAGE,
-            targetId = pageId,
-            targetType = SyncTargetType.STANDALONE_PAGE,
-            jsonData = jsonData,
-            createdAt = Date(),
-            nextRetryAt = Date()
-        )
-        insertEntry(entry)
-    }
     
     suspend fun queueImageUpload(imageId: String, imagePath: String) {
         deleteEntriesForTarget(imageId, SyncOperation.UPLOAD_IMAGE)

@@ -44,7 +44,8 @@ fun PageMenu(
                 .background(Color.White)
                 .width(IntrinsicSize.Max)
         ) {
-            if (notebookId != null && index != null) {
+            // Show page reordering for regular notebooks (not Quick Pages)
+            if (notebookId != null && index != null && !notebookId.startsWith("__quickpage_")) {
                 Box(
                     Modifier
                         .padding(10.dp)

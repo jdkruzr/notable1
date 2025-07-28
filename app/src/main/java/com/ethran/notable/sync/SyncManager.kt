@@ -21,6 +21,7 @@ class SyncManager(
     private val prefs: SharedPreferences = context.getSharedPreferences("sync_settings", Context.MODE_PRIVATE)
     private val serializer = SyncSerializer(context)
     private val syncQueueRepository = SyncQueueRepository(context)
+    private val deletionLogRepository = com.ethran.notable.db.DeletionLogRepository(context)
     private val networkMonitor = NetworkMonitor(context)
     
     private var webdavClient: WebDAVClient? = null
@@ -191,10 +192,18 @@ class SyncManager(
         
         return try {
             // Get page data from database
-            val page = repository.getPageById(pageId) ?: return SyncResult.PAGE_NOT_FOUND
-            val notebook = repository.getNotebookById(page.notebookId ?: "") ?: return SyncResult.NOTEBOOK_NOT_FOUND
-            val strokes = repository.getStrokesByPageId(pageId)
-            val images = repository.getImagesByPageId(pageId)
+            val page = withContext(Dispatchers.IO) {
+                repository.getPageById(pageId)
+            } ?: return SyncResult.PAGE_NOT_FOUND
+            val notebook = withContext(Dispatchers.IO) {
+                repository.getNotebookById(page.notebookId ?: "")
+            } ?: return SyncResult.NOTEBOOK_NOT_FOUND
+            val strokes = withContext(Dispatchers.IO) {
+                repository.getStrokesByPageId(pageId)
+            }
+            val images = withContext(Dispatchers.IO) {
+                repository.getImagesByPageId(pageId)
+            }
             val folderPath = getFolderPath(notebook.parentFolderId)
             
             // Serialize page data
@@ -209,49 +218,54 @@ class SyncManager(
             
             Log.d(TAG, "Serialized page $pageId: ${jsonData.length} bytes, ${strokes.size} strokes, ${images.size} images")
             
-            // Upload image files to WebDAV server
+            // Upload image files to WebDAV server and track individual results
+            val failedImages = mutableListOf<Image>()
             var imageUploadSuccess = true
+            
             for (image in images) {
                 if (image.uri != null) {
                     try {
                         val success = uploadImageFile(client, image)
                         if (!success) {
                             Log.w(TAG, "Failed to upload image ${image.id}")
+                            failedImages.add(image)
                             imageUploadSuccess = false
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error uploading image ${image.id}", e)
+                        failedImages.add(image)
                         imageUploadSuccess = false
                     }
                 }
             }
             
             // Upload page metadata to WebDAV
-            val success = client.uploadPageSync(notebook.id, pageId, jsonData)
+            val pageMetadataSuccess = client.uploadPageSync(notebook.id, pageId, jsonData)
             
-            if (success && imageUploadSuccess) {
+            if (pageMetadataSuccess && imageUploadSuccess) {
                 SyncLogger.info("✓ Page $pageId synced successfully (including ${images.size} images)")
                 Log.d(TAG, "Page $pageId synced successfully (including ${images.size} images)")
                 SyncResult.SUCCESS
-            } else if (success && !imageUploadSuccess) {
-                SyncLogger.warn("⚠ Page $pageId metadata synced but some images failed")
-                Log.w(TAG, "Page $pageId metadata synced but some images failed")
-                SyncResult.PARTIAL_SUCCESS
-            } else {
-                SyncLogger.error("✗ Failed to upload page $pageId, queuing for retry")
-                Log.e(TAG, "Failed to upload page $pageId, queuing for retry")
-                // Queue the failed operation for retry when network is available
-                syncQueueRepository.queuePageUpload(pageId, jsonData)
+            } else if (pageMetadataSuccess && !imageUploadSuccess) {
+                SyncLogger.warn("⚠ Page $pageId metadata synced but ${failedImages.size} images failed")
+                Log.w(TAG, "Page $pageId metadata synced but ${failedImages.size} images failed")
                 
-                // Also queue any failed image uploads
-                for (image in images) {
-                    if (image.uri != null) {
-                        val localFile = java.io.File(image.uri)
-                        if (localFile.exists()) {
-                            syncQueueRepository.queueImageUpload(image.id, image.uri)
-                        }
+                // Only queue the specific images that failed, not the entire page
+                for (image in failedImages) {
+                    val localFile = java.io.File(image.uri!!)
+                    if (localFile.exists()) {
+                        syncQueueRepository.queueImageUpload(image.id, image.uri!!)
                     }
                 }
+                
+                SyncResult.PARTIAL_SUCCESS
+            } else {
+                SyncLogger.error("✗ Failed to upload page $pageId metadata, queuing entire page for retry")
+                Log.e(TAG, "Failed to upload page $pageId metadata, queuing entire page for retry")
+                
+                // Page metadata failed - queue the entire page for retry
+                // This will re-attempt both metadata and all images
+                syncQueueRepository.queuePageUpload(pageId, jsonData)
                 
                 SyncResult.UPLOAD_FAILED
             }
@@ -267,7 +281,9 @@ class SyncManager(
         val client = webdavClient ?: return SyncResult.NOT_CONFIGURED
         
         return try {
-            val notebook = repository.getNotebookById(notebookId) ?: return SyncResult.NOTEBOOK_NOT_FOUND
+            val notebook = withContext(Dispatchers.IO) {
+                repository.getNotebookById(notebookId)
+            } ?: return SyncResult.NOTEBOOK_NOT_FOUND
             val folderPath = getFolderPath(notebook.parentFolderId)
             
             // Sync notebook metadata
@@ -305,96 +321,100 @@ class SyncManager(
         }
     }
     
-    suspend fun syncStandalonePage(pageId: String): SyncResult {
+    
+    suspend fun syncDeletions(): SyncResult {
         if (!isEnabled) return SyncResult.DISABLED
         
         val client = webdavClient ?: return SyncResult.NOT_CONFIGURED
         
         return try {
-            // Get page data from database (Quick Pages have notebookId = null)
-            val page = repository.getPageById(pageId) ?: return SyncResult.PAGE_NOT_FOUND
-            
-            // Ensure this is actually a standalone page
-            if (page.notebookId != null) {
-                Log.w(TAG, "syncStandalonePage called on notebook page $pageId, using syncPage instead")
-                return syncPage(pageId)
+            val unsyncedDeletions = withContext(Dispatchers.IO) {
+                deletionLogRepository.getUnsyncedDeletions()
+            }
+            if (unsyncedDeletions.isEmpty()) {
+                Log.d(TAG, "No deletions to sync")
+                SyncLogger.debug("No deletions to sync")
+                return SyncResult.UP_TO_DATE
             }
             
-            val strokes = repository.getStrokesByPageId(pageId)
-            val images = repository.getImagesByPageId(pageId)
-            val folderPath = getFolderPath(page.parentFolderId)
+            Log.d(TAG, "Syncing ${unsyncedDeletions.size} deletions to server")
+            SyncLogger.info("Found ${unsyncedDeletions.size} deletions to sync to server")
+            var successCount = 0
+            var failureCount = 0
             
-            // Create a synthetic notebook for the standalone page
-            val syntheticNotebook = com.ethran.notable.db.Notebook(
-                id = "quickpage_${pageId}",
-                title = "Quick Page",
-                parentFolderId = page.parentFolderId,
-                pageIds = listOf(pageId),
-                createdAt = page.createdAt,
-                updatedAt = page.updatedAt
-            )
-            
-            // Serialize page data
-            val jsonData = serializer.serializePage(
-                notebook = syntheticNotebook,
-                page = page,
-                strokes = strokes,
-                images = images,
-                folderPath = folderPath,
-                deviceId = deviceId
-            )
-            
-            Log.d(TAG, "Serialized standalone page $pageId: ${jsonData.length} bytes, ${strokes.size} strokes, ${images.size} images")
-            
-            // Upload image files to WebDAV server
-            var imageUploadSuccess = true
-            for (image in images) {
-                if (image.uri != null) {
-                    try {
-                        val success = uploadImageFile(client, image)
-                        if (!success) {
-                            Log.w(TAG, "Failed to upload image ${image.id}")
-                            imageUploadSuccess = false
+            for (deletion in unsyncedDeletions) {
+                try {
+                    val success = when (deletion.deletedItemType) {
+                        com.ethran.notable.db.DeletionType.NOTEBOOK -> {
+                            // Delete notebook metadata file and all page files in the notebook
+                            val notebookMetadataDeleted = client.deleteFile("notebooks/${deletion.deletedItemId}.json")
+                            
+                            // Also attempt to delete any page files that belonged to this notebook
+                            // (We don't have the page list anymore, but the files might still exist)
+                            val pageFiles = client.listFiles("pages/")
+                            var pageFilesDeleted = true
+                            for (pageFile in pageFiles) {
+                                if (pageFile.name.startsWith("${deletion.deletedItemId}_")) {
+                                    if (!client.deleteFile("pages/${pageFile.name}")) {
+                                        pageFilesDeleted = false
+                                    }
+                                }
+                            }
+                            
+                            notebookMetadataDeleted && pageFilesDeleted
                         }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error uploading image ${image.id}", e)
-                        imageUploadSuccess = false
+                        com.ethran.notable.db.DeletionType.PAGE -> {
+                            // Delete page sync file
+                            // We need to find the file that matches this page ID
+                            val pageFiles = client.listPageSyncs()
+                            var pageFileDeleted = false
+                            for (pageFile in pageFiles) {
+                                val syncInfo = pageFile.parseFilename()
+                                if (syncInfo?.pageId == deletion.deletedItemId) {
+                                    pageFileDeleted = client.deleteFile("pages/${pageFile.name}")
+                                    break
+                                }
+                            }
+                            pageFileDeleted
+                        }
+                        com.ethran.notable.db.DeletionType.FOLDER -> {
+                            // TODO: Implement folder deletion when folder sync is implemented
+                            Log.w(TAG, "Folder deletion sync not yet implemented")
+                            true // Skip for now
+                        }
                     }
+                    
+                    if (success) {
+                        withContext(Dispatchers.IO) {
+                            deletionLogRepository.markDeletionAsSynced(deletion)
+                        }
+                        successCount++
+                        Log.d(TAG, "Successfully synced deletion of ${deletion.deletedItemType} ${deletion.deletedItemId}")
+                        SyncLogger.info("✓ Deleted ${deletion.deletedItemType.name.lowercase()} ${deletion.deletedItemId} from server")
+                    } else {
+                        failureCount++
+                        Log.w(TAG, "Failed to sync deletion of ${deletion.deletedItemType} ${deletion.deletedItemId}")
+                        SyncLogger.warn("✗ Failed to delete ${deletion.deletedItemType.name.lowercase()} ${deletion.deletedItemId} from server")
+                    }
+                } catch (e: Exception) {
+                    failureCount++
+                    Log.e(TAG, "Error syncing deletion of ${deletion.deletedItemType} ${deletion.deletedItemId}", e)
                 }
             }
             
-            // Upload page metadata to WebDAV using the synthetic notebook ID
-            val success = client.uploadPageSync(syntheticNotebook.id, pageId, jsonData)
+            Log.d(TAG, "Deletion sync completed: $successCount successes, $failureCount failures")
             
-            if (success && imageUploadSuccess) {
-                Log.d(TAG, "Standalone page $pageId synced successfully (including ${images.size} images)")
-                SyncResult.SUCCESS
-            } else if (success && !imageUploadSuccess) {
-                Log.w(TAG, "Standalone page $pageId metadata synced but some images failed")
-                SyncResult.PARTIAL_SUCCESS
-            } else {
-                Log.e(TAG, "Failed to upload standalone page $pageId, queuing for retry")
-                // Queue the failed operation for retry when network is available
-                syncQueueRepository.queueStandalonePageUpload(pageId, jsonData)
-                
-                // Also queue any failed image uploads
-                for (image in images) {
-                    if (image.uri != null) {
-                        val localFile = java.io.File(image.uri)
-                        if (localFile.exists()) {
-                            syncQueueRepository.queueImageUpload(image.id, image.uri)
-                        }
-                    }
-                }
-                
-                SyncResult.UPLOAD_FAILED
+            when {
+                successCount > 0 && failureCount == 0 -> SyncResult.SUCCESS
+                successCount > 0 && failureCount > 0 -> SyncResult.PARTIAL_SUCCESS
+                else -> SyncResult.ERROR
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error syncing standalone page $pageId", e)
+            Log.e(TAG, "Error syncing deletions", e)
             SyncResult.ERROR
         }
     }
-    
+
     suspend fun syncAll(): SyncResult {
         if (!isEnabled) return SyncResult.DISABLED
         
@@ -411,9 +431,16 @@ class SyncManager(
             // Update device info
             updateDeviceInfo()
             
+            // Sync deletions first
+            val deletionResult = syncDeletions()
+            SyncLogger.info("Deletion sync result: $deletionResult")
+            Log.d(TAG, "Deletion sync result: $deletionResult")
+            
             // Get notebooks and pages modified since last sync (incremental sync)
             val lastSyncDate = Date(lastSyncTime)
-            val allLocalNotebooks = repository.getAllNotebooks()
+            val allLocalNotebooks = withContext(Dispatchers.IO) {
+                repository.getAllNotebooks()
+            }
             Log.d(TAG, "DEBUG: repository.getAllNotebooks() returned ${allLocalNotebooks.size} notebooks")
             allLocalNotebooks.forEachIndexed { index, notebook ->
                 Log.d(TAG, "DEBUG: Notebook $index: id=${notebook.id}, title='${notebook.title}', updatedAt=${notebook.updatedAt}")
@@ -421,15 +448,21 @@ class SyncManager(
             
             val (modifiedNotebooks, modifiedPages) = if (lastSyncTime == 0L) {
                 Log.d(TAG, "First sync - uploading all notebooks and pages")
-                val allPages = repository.getPagesModifiedAfter(Date(0))
+                val allPages = withContext(Dispatchers.IO) {
+                    repository.getPagesModifiedAfter(Date(0))
+                }
                 Log.d(TAG, "DEBUG: repository.getPagesModifiedAfter(Date(0)) returned ${allPages.size} pages")
                 Pair(allLocalNotebooks, allPages)
             } else if (allLocalNotebooks.isEmpty()) {
                 Log.d(TAG, "Empty local database detected - forcing full download instead of incremental sync")
                 Pair(emptyList<com.ethran.notable.db.Notebook>(), emptyList<com.ethran.notable.db.Page>())
             } else {
-                val incrementalNotebooks = repository.getNotebooksModifiedAfter(lastSyncDate)
-                val incrementalPages = repository.getPagesModifiedAfter(lastSyncDate)
+                val incrementalNotebooks = withContext(Dispatchers.IO) {
+                    repository.getNotebooksModifiedAfter(lastSyncDate)
+                }
+                val incrementalPages = withContext(Dispatchers.IO) {
+                    repository.getPagesModifiedAfter(lastSyncDate)
+                }
                 
                 // Check if we have local data but incremental sync finds nothing (data older than sync timestamp)
                 if (incrementalNotebooks.isEmpty() && incrementalPages.isEmpty() && allLocalNotebooks.isNotEmpty()) {
@@ -443,37 +476,30 @@ class SyncManager(
             }
             
             // Find notebooks that need syncing due to page changes
-            val notebooksWithModifiedPages = modifiedPages
-                .filter { it.notebookId != null }
-                .mapNotNull { repository.getNotebookById(it.notebookId!!) }
-                .distinctBy { it.id }
+            val notebooksWithModifiedPages = withContext(Dispatchers.IO) {
+                modifiedPages
+                    .filter { it.notebookId != null }
+                    .mapNotNull { repository.getNotebookById(it.notebookId!!) }
+                    .distinctBy { it.id }
+            }
             
             // Combine explicitly modified notebooks with notebooks having modified pages
             val allNotebooksToSync = (modifiedNotebooks + notebooksWithModifiedPages).distinctBy { it.id }
             
-            // Find Quick Pages (standalone pages with notebookId = null)
-            val quickPages = modifiedPages.filter { it.notebookId == null }
             
             Log.d(TAG, "Found ${allNotebooksToSync.size} notebooks to sync (${modifiedNotebooks.size} directly modified, ${notebooksWithModifiedPages.size} with modified pages)")
-            Log.d(TAG, "Found ${quickPages.size} Quick Pages to sync")
             
-            if (allNotebooksToSync.isEmpty() && quickPages.isEmpty()) {
+            if (allNotebooksToSync.isEmpty()) {
                 Log.d(TAG, "No content to sync")
                 // Don't update sync time here - wait until after download is also complete
                 return SyncResult.UP_TO_DATE
             }
             
-            // Sync notebooks (including those with modified pages)
-            val notebookResults = allNotebooksToSync.map { notebook ->
+            // Sync all notebooks (including Quick Page notebooks)
+            val allResults = allNotebooksToSync.map { notebook ->
                 syncNotebook(notebook.id)
             }
             
-            // Sync Quick Pages as individual pages
-            val quickPageResults = quickPages.map { page ->
-                syncStandalonePage(page.id)
-            }
-            
-            val allResults = notebookResults + quickPageResults
             
             val successCount = allResults.count { it == SyncResult.SUCCESS }
             val totalCount = allResults.size
@@ -513,10 +539,13 @@ class SyncManager(
             Log.d(TAG, "Found ${pageFiles.size} page files on server")
             
             // Check if we need to force full download due to local data being older than sync timestamp
-            val allLocalNotebooks = repository.getAllNotebooks()
-            val shouldForceFullDownload = lastSyncTime > 0L && allLocalNotebooks.isNotEmpty() && 
+            val allLocalNotebooks = withContext(Dispatchers.IO) {
+                repository.getAllNotebooks()
+            }
+            val shouldForceFullDownload = lastSyncTime > 0L && allLocalNotebooks.isNotEmpty() && withContext(Dispatchers.IO) {
                 repository.getNotebooksModifiedAfter(Date(lastSyncTime)).isEmpty() && 
                 repository.getPagesModifiedAfter(Date(lastSyncTime)).isEmpty()
+            }
             
             // Filter files based on last sync time (only process files newer than last sync)
             val filesToProcess = if (lastSyncTime > 0L && !shouldForceFullDownload) {
@@ -588,8 +617,12 @@ class SyncManager(
     suspend fun hasLocalChanges(): Boolean {
         return try {
             val lastSyncDate = Date(lastSyncTime)
-            val modifiedNotebooks = repository.getNotebooksModifiedAfter(lastSyncDate)
-            val modifiedPages = repository.getPagesModifiedAfter(lastSyncDate)
+            val modifiedNotebooks = withContext(Dispatchers.IO) {
+                repository.getNotebooksModifiedAfter(lastSyncDate)
+            }
+            val modifiedPages = withContext(Dispatchers.IO) {
+                repository.getPagesModifiedAfter(lastSyncDate)
+            }
             
             val hasChanges = modifiedNotebooks.isNotEmpty() || modifiedPages.isNotEmpty()
             Log.d(TAG, "hasLocalChanges: $hasChanges (${modifiedNotebooks.size} notebooks, ${modifiedPages.size} pages)")
@@ -641,7 +674,9 @@ class SyncManager(
         var currentFolderId = parentFolderId
         
         while (currentFolderId != null) {
-            val folder = repository.getFolderById(currentFolderId)
+            val folder = withContext(Dispatchers.IO) {
+                repository.getFolderById(currentFolderId)
+            }
             if (folder != null) {
                 path.add(0, folder) // Add to beginning to maintain order
                 currentFolderId = folder.parentFolderId
@@ -664,7 +699,11 @@ class SyncManager(
         
         // Check if page exists locally
         Log.d(TAG, "shouldImportPage: Checking if page exists locally")
-        val existingPage = runBlocking { repository.getPageById(syncPageData.page.id) }
+        val existingPage = runBlocking { 
+            withContext(Dispatchers.IO) {
+                repository.getPageById(syncPageData.page.id)
+            }
+        }
         
         if (existingPage == null) {
             Log.d(TAG, "shouldImportPage: New page, importing")
@@ -685,7 +724,9 @@ class SyncManager(
     private suspend fun importPage(syncPageData: SyncPageData) {
         try {
             // Create or update notebook
-            val existingNotebook = repository.getNotebookById(syncPageData.notebook.id)
+            val existingNotebook = withContext(Dispatchers.IO) {
+                repository.getNotebookById(syncPageData.notebook.id)
+            }
         if (existingNotebook == null) {
             val notebook = Notebook(
                 id = syncPageData.notebook.id,
@@ -696,14 +737,18 @@ class SyncManager(
                 createdAt = serializer.parseDate(syncPageData.notebook.createdAt),
                 updatedAt = serializer.parseDate(syncPageData.notebook.updatedAt)
             )
-            repository.insertNotebook(notebook)
+            withContext(Dispatchers.IO) {
+                repository.insertNotebook(notebook)
+            }
         } else {
             // Update notebook if this page isn't in the page list
             if (!existingNotebook.pageIds.contains(syncPageData.page.id)) {
                 val updatedNotebook = existingNotebook.copy(
                     pageIds = existingNotebook.pageIds + syncPageData.page.id
                 )
-                repository.updateNotebook(updatedNotebook)
+                withContext(Dispatchers.IO) {
+                    repository.updateNotebook(updatedNotebook)
+                }
             }
         }
         
@@ -717,73 +762,81 @@ class SyncManager(
             createdAt = serializer.parseDate(syncPageData.page.createdAt),
             updatedAt = serializer.parseDate(syncPageData.page.updatedAt)
         )
-        repository.upsertPage(page)
+        withContext(Dispatchers.IO) {
+            repository.upsertPage(page)
+        }
         
         // Clear existing strokes and images for this page
-        repository.deleteStrokesByPageId(syncPageData.page.id)
-        repository.deleteImagesByPageId(syncPageData.page.id)
+        withContext(Dispatchers.IO) {
+            repository.deleteStrokesByPageId(syncPageData.page.id)
+            repository.deleteImagesByPageId(syncPageData.page.id)
+        }
         
         // Import strokes
-        syncPageData.strokes.forEach { syncStroke ->
-            val stroke = Stroke(
-                id = syncStroke.id,
-                size = syncStroke.size,
-                pen = Pen.valueOf(syncStroke.pen),
-                color = syncStroke.color,
-                top = syncStroke.boundingBox.top,
-                bottom = syncStroke.boundingBox.bottom,
-                left = syncStroke.boundingBox.left,
-                right = syncStroke.boundingBox.right,
-                points = syncStroke.points.map { point ->
-                    StrokePoint(
-                        x = point.x,
-                        y = point.y,
-                        pressure = point.pressure,
-                        size = point.size,
-                        tiltX = point.tiltX,
-                        tiltY = point.tiltY,
-                        timestamp = point.timestamp
-                    )
-                },
-                pageId = syncPageData.page.id,
-                createdAt = serializer.parseDate(syncStroke.createdAt),
-                updatedAt = serializer.parseDate(syncStroke.updatedAt)
-            )
-            repository.insertStroke(stroke)
+        withContext(Dispatchers.IO) {
+            syncPageData.strokes.forEach { syncStroke ->
+                val stroke = Stroke(
+                    id = syncStroke.id,
+                    size = syncStroke.size,
+                    pen = Pen.valueOf(syncStroke.pen),
+                    color = syncStroke.color,
+                    top = syncStroke.boundingBox.top,
+                    bottom = syncStroke.boundingBox.bottom,
+                    left = syncStroke.boundingBox.left,
+                    right = syncStroke.boundingBox.right,
+                    points = syncStroke.points.map { point ->
+                        StrokePoint(
+                            x = point.x,
+                            y = point.y,
+                            pressure = point.pressure,
+                            size = point.size,
+                            tiltX = point.tiltX,
+                            tiltY = point.tiltY,
+                            timestamp = point.timestamp
+                        )
+                    },
+                    pageId = syncPageData.page.id,
+                    createdAt = serializer.parseDate(syncStroke.createdAt),
+                    updatedAt = serializer.parseDate(syncStroke.updatedAt)
+                )
+                repository.insertStroke(stroke)
+            }
         }
         
         // Import images with file download
-        syncPageData.images.forEach { syncImage ->
-            val image = Image(
-                id = syncImage.id,
-                x = syncImage.position.x,
-                y = syncImage.position.y,
-                width = syncImage.dimensions.width,
-                height = syncImage.dimensions.height,
-                uri = syncImage.uri, // This will be updated with local path
-                pageId = syncPageData.page.id,
-                createdAt = serializer.parseDate(syncImage.createdAt),
-                updatedAt = serializer.parseDate(syncImage.updatedAt)
-            )
-            
-            // Download image file from server
-            val client = webdavClient
-            if (client != null) {
-                val localPath = downloadImageFile(client, image)
-                if (localPath != null) {
-                    // Update URI to point to downloaded local file
-                    val updatedImage = image.copy(uri = localPath)
-                    repository.insertImage(updatedImage)
-                    Log.d(TAG, "Downloaded and imported image ${image.id}")
+        withContext(Dispatchers.IO) {
+            syncPageData.images.forEach { syncImage ->
+                val image = Image(
+                    id = syncImage.id,
+                    x = syncImage.position.x,
+                    y = syncImage.position.y,
+                    width = syncImage.dimensions.width,
+                    height = syncImage.dimensions.height,
+                    uri = syncImage.uri, // This will be updated with local path
+                    pageId = syncPageData.page.id,
+                    createdAt = serializer.parseDate(syncImage.createdAt),
+                    updatedAt = serializer.parseDate(syncImage.updatedAt)
+                )
+                
+                // Download image file from server
+                val client = webdavClient
+                if (client != null) {
+                    val localPath = downloadImageFile(client, image)
+                    if (localPath != null) {
+                        // Update URI to point to downloaded local file
+                        val updatedImage = image.copy(uri = localPath)
+                        repository.insertImage(updatedImage)
+                        Log.d(TAG, "Downloaded and imported image ${image.id}")
+                    } else {
+                        // Keep original URI even if download failed
+                        repository.insertImage(image)
+                        Log.w(TAG, "Failed to download image ${image.id}, keeping original URI")
+                    }
                 } else {
-                    // Keep original URI even if download failed
+                    // No client available, just import metadata
                     repository.insertImage(image)
-                    Log.w(TAG, "Failed to download image ${image.id}, keeping original URI")
+                    Log.w(TAG, "No WebDAV client available, importing image ${image.id} metadata only")
                 }
-            } else {
-                // No client available, just import metadata
-                repository.insertImage(image)
-                Log.w(TAG, "No WebDAV client available, importing image ${image.id} metadata only")
             }
         }
         } catch (e: Exception) {
@@ -811,7 +864,7 @@ class SyncManager(
         return try {
             Log.d(TAG, "Starting bidirectional sync")
             
-            // First upload local changes
+            // First upload local changes (including deletions)
             val uploadResult = syncAll()
             Log.d(TAG, "Upload result: $uploadResult")
             
@@ -852,11 +905,13 @@ class SyncManager(
             
             // Clear all local data
             Log.d(TAG, "Clearing local data")
-            repository.deleteAllStrokes()
-            repository.deleteAllImages()
-            repository.deleteAllPages()
-            repository.deleteAllNotebooks()
-            repository.deleteAllFolders()
+            withContext(Dispatchers.IO) {
+                repository.deleteAllStrokes()
+                repository.deleteAllImages()
+                repository.deleteAllPages()
+                repository.deleteAllNotebooks()
+                repository.deleteAllFolders()
+            }
             
             // Download everything from server
             val result = pullChanges()
@@ -1001,7 +1056,9 @@ class SyncManager(
         val client = webdavClient ?: return SyncResult.NOT_CONFIGURED
         
         return try {
-            val readyEntries = syncQueueRepository.getReadyForRetry(limit = 10)
+            val readyEntries = withContext(Dispatchers.IO) {
+                syncQueueRepository.getReadyForRetry(limit = 10)
+            }
             if (readyEntries.isEmpty()) {
                 SyncLogger.debug("No queue entries ready for retry")
                 Log.d(TAG, "No queue entries ready for retry")
@@ -1022,19 +1079,21 @@ class SyncManager(
                         SyncOperation.UPLOAD_PAGE -> {
                             if (entry.jsonData != null) {
                                 // Extract notebook ID from the page data
-                                val page = repository.getPageById(entry.targetId)
-                                val notebookId = page?.notebookId ?: "quickpage_${entry.targetId}"
-                                client.uploadPageSync(notebookId, entry.targetId, entry.jsonData)
+                                val page = withContext(Dispatchers.IO) {
+                                    repository.getPageById(entry.targetId)
+                                }
+                                val notebookId = page?.notebookId
+                                if (notebookId != null) {
+                                    client.uploadPageSync(notebookId, entry.targetId, entry.jsonData)
+                                } else {
+                                    Log.w(TAG, "Page ${entry.targetId} has null notebookId - this should not happen after migration")
+                                    false
+                                }
                             } else false
                         }
                         SyncOperation.UPLOAD_NOTEBOOK -> {
                             if (entry.jsonData != null) {
                                 client.uploadNotebookMetadata(entry.targetId, entry.jsonData)
-                            } else false
-                        }
-                        SyncOperation.UPLOAD_STANDALONE_PAGE -> {
-                            if (entry.jsonData != null) {
-                                client.uploadPageSync("quickpage_${entry.targetId}", entry.targetId, entry.jsonData)
                             } else false
                         }
                         SyncOperation.UPLOAD_IMAGE -> {
@@ -1059,11 +1118,15 @@ class SyncManager(
                 
                 if (success) {
                     Log.d(TAG, "Queue entry ${entry.id} processed successfully")
-                    syncQueueRepository.markEntrySuccessful(entry)
+                    withContext(Dispatchers.IO) {
+                        syncQueueRepository.markEntrySuccessful(entry)
+                    }
                     successCount++
                 } else {
                     Log.w(TAG, "Queue entry ${entry.id} failed, updating retry info")
-                    syncQueueRepository.markEntryFailed(entry, "Upload failed during queue processing")
+                    withContext(Dispatchers.IO) {
+                        syncQueueRepository.markEntryFailed(entry, "Upload failed during queue processing")
+                    }
                     failureCount++
                 }
             }
@@ -1086,11 +1149,13 @@ class SyncManager(
      */
     suspend fun getQueueStatus(): SyncQueueStatus {
         return try {
-            SyncQueueStatus(
-                pendingCount = syncQueueRepository.getPendingCount(),
-                failedCount = syncQueueRepository.getFailedCount(),
-                totalCount = syncQueueRepository.getAllEntries().size
-            )
+            withContext(Dispatchers.IO) {
+                SyncQueueStatus(
+                    pendingCount = syncQueueRepository.getPendingCount(),
+                    failedCount = syncQueueRepository.getFailedCount(),
+                    totalCount = syncQueueRepository.getAllEntries().size
+                )
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error getting queue status", e)
             SyncQueueStatus(0, 0, 0)
@@ -1102,7 +1167,9 @@ class SyncManager(
      */
     suspend fun clearFailedQueueEntries() {
         try {
-            syncQueueRepository.deleteFailedEntries()
+            withContext(Dispatchers.IO) {
+                syncQueueRepository.deleteFailedEntries()
+            }
             Log.d(TAG, "Cleared failed queue entries")
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing failed queue entries", e)
@@ -1114,7 +1181,9 @@ class SyncManager(
      */
     suspend fun clearAllQueueEntries() {
         try {
-            syncQueueRepository.deleteAllEntries()
+            withContext(Dispatchers.IO) {
+                syncQueueRepository.deleteAllEntries()
+            }
             Log.d(TAG, "Cleared all queue entries")
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing all queue entries", e)

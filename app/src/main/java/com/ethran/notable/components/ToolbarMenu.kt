@@ -66,11 +66,10 @@ fun ToolbarMenu(
             val loadedPage = AppRepository(context).pageRepository.getById(state.pageId)
             page = loadedPage
             if (loadedPage != null) {
-                parentFolder = if (loadedPage.notebookId != null) {
-                    AppRepository(context).bookRepository.getById(loadedPage.notebookId)?.parentFolderId
-                } else {
-                    loadedPage.parentFolderId
-                }
+                // All pages now have notebookId after migration
+                parentFolder = loadedPage.notebookId?.let { notebookId ->
+                    AppRepository(context).bookRepository.getById(notebookId)?.parentFolderId
+                } ?: loadedPage.parentFolderId
             }
         }
     }

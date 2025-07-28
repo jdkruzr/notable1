@@ -105,8 +105,6 @@ interface PageDao {
     @Query("UPDATE page SET scroll=:scroll WHERE id =:pageId")
     fun updateScroll(pageId: String, scroll: Int)
 
-    @Query("SELECT * FROM page WHERE notebookId is null AND parentFolderId is :folderId")
-    fun getSinglePagesInFolder(folderId: String? = null): LiveData<List<Page>>
 
     @Query("SELECT * FROM page WHERE updatedAt > :lastSyncTime")
     fun getModifiedAfter(lastSyncTime: Long): List<Page>
@@ -123,6 +121,7 @@ interface PageDao {
 
 class PageRepository(context: Context) {
     var db = AppDatabase.getDatabase(context).pageDao()
+    private var deletionLogDb = AppDatabase.getDatabase(context).deletionLogDao()
 
     fun create(page: Page): Long {
         return db.create(page)
@@ -148,9 +147,6 @@ class PageRepository(context: Context) {
         return db.getPageWithImagesById(pageId)
     }
 
-    fun getSinglePagesInFolder(folderId: String? = null): LiveData<List<Page>> {
-        return db.getSinglePagesInFolder(folderId)
-    }
 
     fun update(page: Page) {
         return db.update(page)
@@ -158,6 +154,19 @@ class PageRepository(context: Context) {
 
     fun delete(pageId: String) {
         return db.delete(pageId)
+    }
+    
+    fun deleteWithLogging(pageId: String, deviceId: String) {
+        // Log the deletion before actually deleting
+        val deletionLog = DeletionLog(
+            deletedItemId = pageId,
+            deletedItemType = DeletionType.PAGE,
+            deviceId = deviceId
+        )
+        deletionLogDb.logDeletion(deletionLog)
+        
+        // Now delete the page
+        db.delete(pageId)
     }
 
     fun getPagesModifiedAfter(lastSyncTime: Long): List<Page> {

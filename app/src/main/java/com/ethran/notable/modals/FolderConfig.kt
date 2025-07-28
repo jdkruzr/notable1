@@ -2,6 +2,7 @@ package com.ethran.notable.modals
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -37,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.Alignment
 import com.ethran.notable.TAG
 import com.ethran.notable.db.FolderRepository
 import com.ethran.notable.utils.noRippleClickable
@@ -138,26 +141,24 @@ fun FolderConfigDialog(folderId: String, onClose: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
                     // Cancel button
-                    Text(
-                        text = "Cancel",
-                        textAlign = TextAlign.Center,
-                        color = Color.Gray,
-                        fontWeight = FontWeight.Bold,
+                    Box(
                         modifier = Modifier
-                            .noRippleClickable {
-                                onClose()
-                            }
-                            .padding(vertical = 8.dp, horizontal = 16.dp)
-                    )
+                            .size(100.dp, 40.dp)
+                            .background(Color.LightGray, RectangleShape)
+                            .border(1.dp, Color.Black, RectangleShape)
+                            .clickable { onClose() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Cancel", fontWeight = FontWeight.Bold)
+                    }
                     
                     // Save button
-                    Text(
-                        text = "Save Changes",
-                        textAlign = TextAlign.Center,
-                        color = Color.Blue,
-                        fontWeight = FontWeight.Bold,
+                    Box(
                         modifier = Modifier
-                            .noRippleClickable {
+                            .size(100.dp, 40.dp)
+                            .background(Color.LightGray, RectangleShape)
+                            .border(1.dp, Color.Black, RectangleShape)
+                            .clickable {
                                 val updatedFolder = folder!!.copy(title = folderTitle)
                                 scope.launch {
                                     withContext(Dispatchers.IO) {
@@ -165,9 +166,11 @@ fun FolderConfigDialog(folderId: String, onClose: () -> Unit) {
                                     }
                                     onClose()
                                 }
-                            }
-                            .padding(vertical = 8.dp, horizontal = 16.dp)
-                    )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Save", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 

@@ -37,7 +37,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.filled.Upgrade
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.ButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -70,9 +70,13 @@ import com.ethran.notable.classes.AppRepository
 import com.ethran.notable.utils.SyncLogger
 import com.ethran.notable.utils.LogLevel
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import kotlin.concurrent.thread
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @ExperimentalFoundationApi
 @Composable
@@ -171,6 +175,7 @@ fun SettingsView(navController: NavController) {
 
 @Composable
 fun GeneralSettings(kv: KvProxy, settings: AppSettings) {
+    val scope = rememberCoroutineScope()
     Row {
         Text(text = "Default Page Background Template")
         Spacer(Modifier.width(10.dp))
@@ -183,7 +188,11 @@ fun GeneralSettings(kv: KvProxy, settings: AppSettings) {
                 "hexed" to "Hexagon grid",
             ),
             onChange = {
-                kv.setAppSettings(settings.copy(defaultNativeTemplate = it))
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        kv.setAppSettings(settings.copy(defaultNativeTemplate = it))
+                    }
+                }
             },
             value = settings.defaultNativeTemplate
         )
@@ -194,14 +203,22 @@ fun GeneralSettings(kv: KvProxy, settings: AppSettings) {
         label = "Show welcome screen",
         value = settings.showWelcome,
         onToggle = { isChecked ->
-            kv.setAppSettings(settings.copy(showWelcome = isChecked))
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    kv.setAppSettings(settings.copy(showWelcome = isChecked))
+                }
+            }
         }
     )
     SettingToggleRow(
         label = "Debug Mode (show changed area)",
         value = settings.debugMode,
         onToggle = { isChecked ->
-            kv.setAppSettings(settings.copy(debugMode = isChecked))
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    kv.setAppSettings(settings.copy(debugMode = isChecked))
+                }
+            }
         }
     )
 
@@ -209,7 +226,11 @@ fun GeneralSettings(kv: KvProxy, settings: AppSettings) {
         label = "Use Onyx NeoTools (may cause crashes)",
         value = settings.neoTools,
         onToggle = { isChecked ->
-            kv.setAppSettings(settings.copy(neoTools = isChecked))
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    kv.setAppSettings(settings.copy(neoTools = isChecked))
+                }
+            }
         }
     )
 
@@ -217,7 +238,11 @@ fun GeneralSettings(kv: KvProxy, settings: AppSettings) {
         label = "Enable smooth scrolling",
         value = settings.smoothScroll,
         onToggle = { isChecked ->
-            kv.setAppSettings(settings.copy(smoothScroll = isChecked))
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    kv.setAppSettings(settings.copy(smoothScroll = isChecked))
+                }
+            }
         }
     )
 
@@ -225,14 +250,22 @@ fun GeneralSettings(kv: KvProxy, settings: AppSettings) {
         label = "Continuous Zoom (Work in progress)",
         value = settings.continuousZoom,
         onToggle = { isChecked ->
-            kv.setAppSettings(settings.copy(continuousZoom = isChecked))
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    kv.setAppSettings(settings.copy(continuousZoom = isChecked))
+                }
+            }
         }
     )
     SettingToggleRow(
         label = "Monochrome mode (Work in progress)",
         value = settings.monochromeMode,
         onToggle = { isChecked ->
-            kv.setAppSettings(settings.copy(monochromeMode = isChecked))
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    kv.setAppSettings(settings.copy(monochromeMode = isChecked))
+                }
+            }
         }
     )
 
@@ -240,7 +273,11 @@ fun GeneralSettings(kv: KvProxy, settings: AppSettings) {
         label = "Paginate PDF",
         value = settings.paginatePdf,
         onToggle = { isChecked ->
-            kv.setAppSettings(settings.copy(paginatePdf = isChecked))
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    kv.setAppSettings(settings.copy(paginatePdf = isChecked))
+                }
+            }
         }
     )
 
@@ -248,7 +285,23 @@ fun GeneralSettings(kv: KvProxy, settings: AppSettings) {
         label = "Visualize PDF Pagination",
         value = settings.visualizePdfPagination,
         onToggle = { isChecked ->
-            kv.setAppSettings(settings.copy(visualizePdfPagination = isChecked))
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    kv.setAppSettings(settings.copy(visualizePdfPagination = isChecked))
+                }
+            }
+        }
+    )
+    
+    SettingToggleRow(
+        label = "Prefix new notebook names with date",
+        value = settings.prefixNotebookNamesWithDate,
+        onToggle = { isChecked ->
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    kv.setAppSettings(settings.copy(prefixNotebookNamesWithDate = isChecked))
+                }
+            }
         }
     )
     Spacer(Modifier.height(5.dp))
@@ -265,8 +318,10 @@ fun GeneralSettings(kv: KvProxy, settings: AppSettings) {
                 ),
                 value = settings.toolbarPosition,
                 onChange = { newPosition ->
-                    settings.let {
-                        kv.setAppSettings(it.copy(toolbarPosition = newPosition))
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            kv.setAppSettings(settings.copy(toolbarPosition = newPosition))
+                        }
                     }
                 }
             )
@@ -302,6 +357,7 @@ fun GestureSelectorRow(
     default: AppSettings.GestureAction,
     override: AppSettings.() -> AppSettings.GestureAction?,
 ) {
+    val scope = rememberCoroutineScope()
     Row {
         Text(text = title)
         Spacer(Modifier.width(10.dp))
@@ -318,7 +374,11 @@ fun GestureSelectorRow(
             value = if (settings != null) settings.override() else default,
             onChange = {
                 if (settings != null) {
-                    kv.setAppSettings(settings.update(it))
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            kv.setAppSettings(settings.update(it))
+                        }
+                    }
                 }
             },
         )
@@ -632,7 +692,6 @@ fun EditGestures(kv: KvProxy, settings: AppSettings?) {
 @Composable
 fun SyncLogViewer() {
     val logs by SyncLogger.logs.collectAsState()
-    var expanded by remember { mutableStateOf(false) }
     
     Card(
         modifier = Modifier
@@ -646,13 +705,11 @@ fun SyncLogViewer() {
         ) {
             // Header
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .noRippleClickable { expanded = !expanded },
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Default.List,
+                    imageVector = Icons.AutoMirrored.Filled.List,
                     contentDescription = "Sync Log",
                     tint = MaterialTheme.colors.primary
                 )
@@ -663,46 +720,31 @@ fun SyncLogViewer() {
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
                 )
-                Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = if (expanded) "Collapse" else "Expand"
-                )
+                Button(
+                    onClick = { SyncLogger.clear() },
+                    colors = ButtonDefaults.buttonColors(backgroundColor = Color.LightGray)
+                ) {
+                    Text("Clear")
+                }
             }
             
-            if (expanded) {
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                // Clear logs button
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Log entries - always shown
+            if (logs.isEmpty()) {
+                Text(
+                    text = "No sync events logged yet",
+                    style = MaterialTheme.typography.body2,
+                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(8.dp)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.height(300.dp), // Increased height since always visible
+                    reverseLayout = false // Show newest first (already handled in SyncLogger)
                 ) {
-                    Button(
-                        onClick = { SyncLogger.clear() },
-                        colors = ButtonDefaults.buttonColors(backgroundColor = Color.LightGray)
-                    ) {
-                        Text("Clear Log")
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                // Log entries
-                if (logs.isEmpty()) {
-                    Text(
-                        text = "No sync events logged yet",
-                        style = MaterialTheme.typography.body2,
-                        color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
-                        modifier = Modifier.padding(8.dp)
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.height(200.dp),
-                        reverseLayout = false // Show newest first (already handled in SyncLogger)
-                    ) {
-                        items(logs) { logEntry ->
-                            LogEntryItem(logEntry)
-                        }
+                    items(logs) { logEntry ->
+                        LogEntryItem(logEntry)
                     }
                 }
             }

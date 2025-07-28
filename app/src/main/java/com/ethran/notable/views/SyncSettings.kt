@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.*
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,6 +25,10 @@ import com.ethran.notable.modals.GlobalAppSettings
 import com.ethran.notable.sync.SyncManager
 import com.ethran.notable.components.SelectMenu
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.ethran.notable.utils.SyncLogger
+import com.ethran.notable.components.ShowConfirmationDialog
 
 @Composable
 fun SyncSettings(
@@ -39,6 +44,15 @@ fun SyncSettings(
     var isTestingConnection by remember { mutableStateOf(false) }
     var isSyncing by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
+    var showReplaceServerConfirmation by remember { mutableStateOf(false) }
+    
+    // Add some sample log entries when the component first loads (for testing)
+    LaunchedEffect(Unit) {
+        if (SyncLogger.logs.value.isEmpty()) {
+            SyncLogger.info("WebDAV settings opened")
+            SyncLogger.debug("Sync configuration loaded")
+        }
+    }
     
     Column(
         modifier = modifier
@@ -75,13 +89,17 @@ fun SyncSettings(
             Switch(
                 checked = settings.webdavSyncEnabled,
                 onCheckedChange = { isChecked ->
-                    val updatedSettings = settings.copy(webdavSyncEnabled = isChecked)
-                    kv.setAppSettings(updatedSettings)
-                    
-                    // Update sync manager configuration
-                    syncManager.isEnabled = isChecked
-                    if (isChecked) {
-                        syncManager.initialize()
+                    scope.launch {
+                        val updatedSettings = settings.copy(webdavSyncEnabled = isChecked)
+                        withContext(Dispatchers.IO) {
+                            kv.setAppSettings(updatedSettings)
+                        }
+                        
+                        // Update sync manager configuration
+                        syncManager.isEnabled = isChecked
+                        if (isChecked) {
+                            syncManager.initialize()
+                        }
                     }
                 }
             )
@@ -94,10 +112,14 @@ fun SyncSettings(
             OutlinedTextField(
                 value = settings.webdavServerUrl,
                 onValueChange = { url ->
-                    val updatedSettings = settings.copy(webdavServerUrl = url)
-                    kv.setAppSettings(updatedSettings)
-                    syncManager.serverUrl = url
-                    syncManager.initialize()
+                    scope.launch {
+                        val updatedSettings = settings.copy(webdavServerUrl = url)
+                        withContext(Dispatchers.IO) {
+                            kv.setAppSettings(updatedSettings)
+                        }
+                        syncManager.serverUrl = url
+                        syncManager.initialize()
+                    }
                 },
                 label = { Text("Server URL") },
                 placeholder = { Text("https://your-server.com/remote.php/dav/files/username/") },
@@ -112,10 +134,14 @@ fun SyncSettings(
             OutlinedTextField(
                 value = settings.webdavUsername,
                 onValueChange = { username ->
-                    val updatedSettings = settings.copy(webdavUsername = username)
-                    kv.setAppSettings(updatedSettings)
-                    syncManager.username = username
-                    syncManager.initialize()
+                    scope.launch {
+                        val updatedSettings = settings.copy(webdavUsername = username)
+                        withContext(Dispatchers.IO) {
+                            kv.setAppSettings(updatedSettings)
+                        }
+                        syncManager.username = username
+                        syncManager.initialize()
+                    }
                 },
                 label = { Text("Username") },
                 modifier = Modifier.fillMaxWidth(),
@@ -129,10 +155,14 @@ fun SyncSettings(
             OutlinedTextField(
                 value = settings.webdavPassword,
                 onValueChange = { password ->
-                    val updatedSettings = settings.copy(webdavPassword = password)
-                    kv.setAppSettings(updatedSettings)
-                    syncManager.password = password
-                    syncManager.initialize()
+                    scope.launch {
+                        val updatedSettings = settings.copy(webdavPassword = password)
+                        withContext(Dispatchers.IO) {
+                            kv.setAppSettings(updatedSettings)
+                        }
+                        syncManager.password = password
+                        syncManager.initialize()
+                    }
                 },
                 label = { Text("Password") },
                 modifier = Modifier.fillMaxWidth(),
@@ -204,8 +234,12 @@ fun SyncSettings(
                 Switch(
                     checked = settings.webdavAutoSync,
                     onCheckedChange = { isChecked ->
-                        val updatedSettings = settings.copy(webdavAutoSync = isChecked)
-                        kv.setAppSettings(updatedSettings)
+                        scope.launch {
+                            val updatedSettings = settings.copy(webdavAutoSync = isChecked)
+                            withContext(Dispatchers.IO) {
+                                kv.setAppSettings(updatedSettings)
+                            }
+                        }
                     }
                 )
             }
@@ -254,8 +288,12 @@ fun SyncSettings(
                     ),
                     value = settings.webdavSyncInterval,
                     onChange = { interval ->
-                        val updatedSettings = settings.copy(webdavSyncInterval = interval)
-                        kv.setAppSettings(updatedSettings)
+                        scope.launch {
+                            val updatedSettings = settings.copy(webdavSyncInterval = interval)
+                            withContext(Dispatchers.IO) {
+                                kv.setAppSettings(updatedSettings)
+                            }
+                        }
                     }
                 )
             }
@@ -344,23 +382,7 @@ fun SyncSettings(
             // Replace Server with Local Button (DANGER!)
             Button(
                 onClick = {
-                    scope.launch {
-                        isSyncing = true
-                        syncStatus = "Replacing server with local... [DANGER!]"
-                        
-                        val result = syncManager.replaceServerWithLocal()
-                        syncStatus = when (result) {
-                            com.ethran.notable.sync.SyncResult.SUCCESS -> "✓ Server data replaced with local data"
-                            com.ethran.notable.sync.SyncResult.PARTIAL_SUCCESS -> "⚠ Partial replacement completed"
-                            com.ethran.notable.sync.SyncResult.UP_TO_DATE -> "✓ Already up to date"
-                            com.ethran.notable.sync.SyncResult.ERROR -> "✗ Replacement failed"
-                            com.ethran.notable.sync.SyncResult.DISABLED -> "✗ Sync disabled"
-                            com.ethran.notable.sync.SyncResult.NOT_CONFIGURED -> "✗ Not configured"
-                            else -> "✗ Unknown error"
-                        }
-                        
-                        isSyncing = false
-                    }
+                    showReplaceServerConfirmation = true
                 },
                 enabled = !isSyncing && settings.webdavServerUrl.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth(),
@@ -374,6 +396,37 @@ fun SyncSettings(
                     Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(if (isSyncing) "Replacing..." else "Replace Server with Local [DANGER!]")
+            }
+            
+            // Show confirmation dialog for dangerous operation
+            if (showReplaceServerConfirmation) {
+                ShowConfirmationDialog(
+                    title = "Replace Server with Local Data?",
+                    message = "⚠️ WARNING: This will permanently delete ALL data on the server and replace it with your local data. This action cannot be undone. Are you absolutely sure you want to continue?",
+                    onConfirm = {
+                        showReplaceServerConfirmation = false
+                        scope.launch {
+                            isSyncing = true
+                            syncStatus = "Replacing server with local... [DANGER!]"
+                            
+                            val result = syncManager.replaceServerWithLocal()
+                            syncStatus = when (result) {
+                                com.ethran.notable.sync.SyncResult.SUCCESS -> "✓ Server data replaced with local data"
+                                com.ethran.notable.sync.SyncResult.PARTIAL_SUCCESS -> "⚠ Partial replacement completed"
+                                com.ethran.notable.sync.SyncResult.UP_TO_DATE -> "✓ Already up to date"
+                                com.ethran.notable.sync.SyncResult.ERROR -> "✗ Replacement failed"
+                                com.ethran.notable.sync.SyncResult.DISABLED -> "✗ Sync disabled"
+                                com.ethran.notable.sync.SyncResult.NOT_CONFIGURED -> "✗ Not configured"
+                                else -> "✗ Unknown error"
+                            }
+                            
+                            isSyncing = false
+                        }
+                    },
+                    onCancel = {
+                        showReplaceServerConfirmation = false
+                    }
+                )
             }
         }
     }

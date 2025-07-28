@@ -100,12 +100,25 @@ class FloatingEditorActivity : ComponentActivity() {
         if (pageId != null) {
             var page = appRepository.pageRepository.getById(pageId)
             if (page == null) {
+                // Create Quick Page as single-page notebook
+                val notebookId = "__quickpage_${pageId}__"
+                
+                val notebook = com.ethran.notable.db.Notebook(
+                    id = notebookId,
+                    title = "Quick Page",
+                    pageIds = listOf(pageId),
+                    parentFolderId = null,
+                    defaultNativeTemplate = GlobalAppSettings.current.defaultNativeTemplate
+                )
+                
                 page = Page(
                     id = pageId,
-                    notebookId = null,
+                    notebookId = notebookId,
                     parentFolderId = null,
-                    background =  GlobalAppSettings.current.defaultNativeTemplate
+                    background = GlobalAppSettings.current.defaultNativeTemplate
                 )
+                
+                appRepository.insertNotebook(notebook)
                 appRepository.pageRepository.create(page)
             }
 

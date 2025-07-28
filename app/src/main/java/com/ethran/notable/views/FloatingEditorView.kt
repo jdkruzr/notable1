@@ -64,12 +64,27 @@ fun FloatingEditorView(
                             val firstPageId =
                                 appRepository.bookRepository.getById(bookId)?.pageIds?.firstOrNull()
                             if (firstPageId == null) {
-                                // new page uuid
+                                // Create Quick Page as single-page notebook
+                                val pageId = java.util.UUID.randomUUID().toString()
+                                val notebookId = "__quickpage_${pageId}__"
+                                
+                                val notebook = com.ethran.notable.db.Notebook(
+                                    id = notebookId,
+                                    title = "Quick Page",
+                                    pageIds = listOf(pageId),
+                                    parentFolderId = null,
+                                    defaultNativeTemplate = GlobalAppSettings.current.defaultNativeTemplate
+                                )
+                                
                                 val page = Page(
-                                    notebookId = null,
+                                    id = pageId,
+                                    notebookId = notebookId,
                                     background = GlobalAppSettings.current.defaultNativeTemplate,
                                     parentFolderId = null
                                 )
+                                
+                                // Insert the notebook first
+                                appRepository.insertNotebook(notebook)
                                 EditorView(
                                     navController = navController,
                                     bookId = bookId,

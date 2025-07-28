@@ -21,7 +21,6 @@ data class SyncQueueEntry(
 enum class SyncOperation {
     UPLOAD_PAGE,
     UPLOAD_NOTEBOOK,
-    UPLOAD_STANDALONE_PAGE,
     UPLOAD_IMAGE,
     DOWNLOAD_PAGE,
     DOWNLOAD_IMAGE
@@ -30,7 +29,6 @@ enum class SyncOperation {
 enum class SyncTargetType {
     PAGE,
     NOTEBOOK,
-    STANDALONE_PAGE,
     IMAGE
 }
 
